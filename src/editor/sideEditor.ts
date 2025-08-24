@@ -542,10 +542,7 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     readonly $newGroup          = new ZInputBox("");
     readonly $createGroup       = new ZButton("Create");
     readonly $createLine        = new ZButton("Create");
-    readonly $attachUI          = new ZDropdownOptionBox(
-        (["null", "pause", "combo", "combonumber", "score", "level", "bar", "name"] satisfies ("null" | UIName)[])
-            .map(name => new BoxOption(name))
-    )
+    readonly $attachUI          = new ZCollapseController(true);
     readonly $rotatesWithFather = new ZSwitch("no", "yes");
     readonly $del               = new ZButton("Delete").addClass("destructive");
     readonly $setAsBindNote     = new ZButton("Set as note binding").addClass("progressive");
@@ -558,13 +555,44 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     readonly $newEventSeqName   = new ZSearchBox((prefix: string) => 
         [...editor.chart.sequenceMap.keys()].filter(name => name.startsWith(prefix))
     )
+
+    // @ts-ignore
+    readonly map$uiAttach: Record<UIName, ZSwitch> = {}
     constructor() {
         super();
+
+        const uiNames = ["bar", "combo", "combonumber", "level", "name", "pause", "score"] satisfies UIName[];
+        const arr$element: Z<any>[] = [];
+        for (const uiName of uiNames) {
+            const $ui = new ZSwitch("Attach", "Detach");
+            $ui.whenClickChange((checked: boolean) => {
+                if (!this.target) {
+                    notify("The target line of this editor has been garbage-collected");
+                    return;
+                }
+                if (checked) {
+                    editor.operationList.do(new AttachUIOperation(editor.chart, this.target, uiName));
+                } else {
+                    editor.operationList.do(new DetachUIOperation(editor.chart, uiName));
+                }
+            });
+            arr$element.push(
+                $("span").text(uiName),
+                $ui
+            );
+            this.map$uiAttach[uiName] = $ui;
+        }
+        this.$attachUI.attach(...arr$element);
+
+
         this.$title.text("Judge Line");
         this.$body.append(
             $("span").text("Father"), this.$father,
             $("span").text("Group"), this.$group,
             $("span").text("Attach UI"), this.$attachUI,
+
+            ...arr$element,
+
             $("span").text("Rotates with father"), this.$rotatesWithFather,
             $("span").text("New Group"), $("div").append(this.$newGroup, this.$createGroup),
             $("span").text("New Line"), this.$createLine,
@@ -596,16 +624,6 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
                 }
                 editor.operationList.do(new JudgeLineInheritanceChangeOperation(editor.chart, this.target, father));
             }
-        });
-        this.$attachUI.whenValueChange((uiname) => {
-            if (!this.target) {
-                notify("The target of this editor has been garbage-collected");
-                return;
-            }
-            if (uiname === "null") {
-                editor.operationList.do(new DetachJudgeLineOperation(this.target))
-            }
-            editor.operationList.do(new AttachUIOperation(this.target, uiname as UIName));
         });
         this.$createGroup.onClick(() => {
             if (!this.target) {
@@ -717,7 +735,15 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
         this.$father.setValue(judgeLine.father ? judgeLine.father.id + "" : "-1");
         this.$rotatesWithFather.checked = judgeLine.rotatesWithFather;
         this.updateGroups(editor.chart.judgeLineGroups);
+        this.updateAttach();
         this.$group.value = this.$group.options.find(option => option.text === judgeLine.group.name);
+        const layer = judgeLine.eventLayers[this.$eventLayerIdInput.getValue()]
+        if (layer) {
+            const seq = layer[this.$eventType.value.text as BasicEventName];
+            if (seq) {
+                this.$newEventSeqName.value = seq.id;
+            }
+        }
     }
     updateGroups(groups: JudgeLineGroup[]) {
         this.$group.replaceWithOptions(groups.map(group => {
@@ -727,6 +753,23 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
             });
             return option
         }));
+    }
+    updateAttach() {
+        const chart = editor.chart;
+        for (const uiName of ["bar", "combonumber", "combo", "level", "name", "pause", "score"] satisfies UIName[]) {
+            const attachTarget = chart[`${uiName}Attach` satisfies keyof Chart];
+            if (attachTarget === this.target) {
+                this.map$uiAttach[uiName].checked = true;
+                this.map$uiAttach[uiName].disabled = false;
+            } else if (attachTarget === null) {
+                this.map$uiAttach[uiName].checked = false;
+                this.map$uiAttach[uiName].disabled = false;
+            } else {
+                this.map$uiAttach[uiName].checked = false;
+                this.map$uiAttach[uiName].disabled = true;
+                this.map$uiAttach[uiName].text(`Attached to #${attachTarget.id}`); // 神级用法
+            }
+        }
     }
 }
 

@@ -36,7 +36,7 @@ class OperationList extends EventTarget {
             try {
                 op.undo(this.chart);
             } catch (e) {
-                this.dispatchEvent(new OperationErrorEvent(e as Error))
+                this.dispatchEvent(new OperationErrorEvent(op, e as Error))
                 return
             }
             this.undoneOperations.push(op)
@@ -57,7 +57,7 @@ class OperationList extends EventTarget {
             try {
                 op.do(this.chart);
             } catch (e) {
-                this.dispatchEvent(new OperationErrorEvent(e as Error))
+                this.dispatchEvent(new OperationErrorEvent(op, e as Error))
                 return
             }
             this.operations.push(op)
@@ -90,7 +90,7 @@ class OperationList extends EventTarget {
         try {
             operation.do(this.chart);
         } catch (e) {
-            this.dispatchEvent(new OperationErrorEvent(e as Error))
+            this.dispatchEvent(new OperationErrorEvent(operation, e as Error))
             return
         }
         this.dispatchEvent(new OperationEvent("do", operation));
@@ -976,32 +976,51 @@ class EventNodeSequenceRenameOperation extends Operation {
 
 class AttachUIOperation extends Operation {
     updatesEditor = true;
-    constructor(public judgeLine: JudgeLine, public ui: UIName) {
+    constructor(public chart: Chart, public judgeLine: JudgeLine, public ui: UIName) {
         super();
     }
-    do(chart: Chart) {
-        chart.attachUIToLine(this.ui, this.judgeLine);
+    do() {
+        this.chart.attachUIToLine(this.ui, this.judgeLine);
     }
-    undo(chart: Chart) {
-        chart.detachUI(this.ui);
+    undo() {
+        this.chart.detachUI(this.ui);
+    }
+}
+
+class DetachUIOperation extends Operation {
+    updatesEditor = true;
+    judgeLine: JudgeLine;
+    constructor(public chart: Chart, public ui: UIName) {
+        super();
+        if (chart[`${ui}Attach` satisfies keyof Chart]) {
+            this.judgeLine = chart[`${ui}Attach` satisfies keyof Chart];
+        } else {
+            this.ineffective = true;
+        }
+    }
+    do() {
+        this.chart.detachUI(this.ui);
+    }
+    undo() {
+        this.chart.attachUIToLine(this.ui, this.judgeLine);
     }
 }
 
 class DetachJudgeLineOperation extends Operation {
     updatesEditor = true;
     uinames: UIName[];
-    constructor(public judgeLine: JudgeLine) {
+    constructor(public chart: Chart, public judgeLine: JudgeLine) {
         super();
-    }
-    do(chart: Chart) {
         this.uinames = chart.queryJudgeLineUI(this.judgeLine);
+    }
+    do() {
         for (let ui of this.uinames) {
-            chart.detachUI(ui);
+            this.chart.detachUI(ui);
         }
     }
-    undo(chart: Chart) {
+    undo() {
         for (let ui of this.uinames) {
-            chart.attachUIToLine(ui, this.judgeLine);
+            this.chart.attachUIToLine(ui, this.judgeLine);
         }
     }
 }

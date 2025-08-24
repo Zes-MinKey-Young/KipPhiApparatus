@@ -636,6 +636,9 @@ class ZSearchBox extends Z<"div"> {
     get value() {
         return this.$value.getValue();
     }
+    set value(value: string) {
+        this.$value.setValue(value);
+    }
     whenValueChange(callback: (value: string, e: Event) => void) {
         this.$value.whenValueChange(callback)
     }
@@ -944,7 +947,10 @@ class ZCollapseController extends Z<"div"> {
             }
         }
     }
-    attach($element: Z<HTMLElementTagName>) {
-        this.targets.push($element);
+    attach(...arr$element: Z<HTMLElementTagName>[]) {
+        this.targets.push(...arr$element);
+        if (this.folded) for (const $element of arr$element) {
+            $element.hide();
+        }
     }
 }
