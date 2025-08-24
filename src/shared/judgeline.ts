@@ -25,6 +25,8 @@ class JudgeLine {
     rotate: number;
     alpha: number;
 
+    anchor: [number, number] = [0.5, 0.5];
+
     hasAttachUI: boolean = false;
 
     /**
@@ -51,6 +53,7 @@ class JudgeLine {
         chart.judgeLineGroups[data.Group].add(line);
         line.cover = Boolean(data.isCover);
         line.rotatesWithFather = data.rotate_with_father;
+        line.anchor = data.anchor ?? [0.5, 0.5];
 
         // Process UI
         if (data.attachUI) {
@@ -134,6 +137,10 @@ class JudgeLine {
         line.id = id;
         line.name = data.Name;
         line.rotatesWithFather = data.rotatesWithFather;
+        line.anchor = data.anchor ?? [0.5, 0.5];
+        line.texture = data.Texture || "line.png";
+
+
         chart.judgeLineGroups[data.group].add(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
@@ -455,7 +462,9 @@ class JudgeLine {
             group: judgeLineGroups.indexOf(this.group),
             id: this.id,
             Name: this.name,
-            Texture: "line.png",
+            Texture: this.texture,
+            anchor: this.anchor,
+            rotatesWithFather: this.rotatesWithFather,
             children: children,
             eventLayers: eventLayers,
             hnLists: hnListsData,

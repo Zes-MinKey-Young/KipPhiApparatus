@@ -159,7 +159,6 @@ interface YControl extends Control {
 
 /** 判定线 */
 interface JudgeLineDataRPE {
-    _id?: number;
     /** 音符数据
      * 对音符的顺序没有要求，但RPE生成的标准RPEJSON中应当按照时间升序排列，
      * 且非Hold类型与Hold分开排列，非Hold在前
@@ -171,13 +170,12 @@ interface JudgeLineDataRPE {
     Name: string;
     /** 纹理图片的路径 */
     Texture: string;
-    alphaControl: AlphaControl[];
     /** BPM因数 */
     bpmfactor: 1.0;
     /** 事件层级，这里没有介绍第五个 */
     eventLayers: (EventLayerDataRPE | null)[];
     /** 扩展事件 */
-    extended: {
+    extended?: {
         colorEvents: EventDataRPE<RGB>[];
         inclineEvents: EventDataRPE[];
         scaleXEvents: EventDataRPE[];
@@ -191,12 +189,16 @@ interface JudgeLineDataRPE {
     /** 音符数量 */
     numOfNotes: number;
 
-    posControl: PosControl[];
-    sizeControl: SizeControl[];
-    skewControl: SkewControl[];
-    yControl: YControl[];
+    alphaControl?: AlphaControl[];
+    posControl?: PosControl[];
+    sizeControl?: SizeControl[];
+    skewControl?: SkewControl[];
+    yControl?: YControl[];
     /** z轴顺序，决定重叠的顺序 */
-    zOrder: number;
+    zOrder?: number;
+
+    // 锚点相对于贴图的位置
+    anchor: [number, number];
 
     /** 背景是否为GIF */
     isGif: Bool;
@@ -267,6 +269,8 @@ interface JudgeLineDataKPA {
     eventLayers: EventLayerDataKPA[];
     children: JudgeLineDataKPA[];
     rotatesWithFather: boolean;
+
+    anchor: [number, number];
     // extended: {inclineEvents: EventDataRPE[]};
     // father: number;
     // children: number[];

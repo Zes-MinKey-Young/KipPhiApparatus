@@ -538,6 +538,8 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
 
 class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     readonly $father            = new ZInputBox("-1");
+    readonly $texture           = new ZInputBox("line.png");
+    readonly $anchor            = new ZInputBox("0.5, 0.5");
     readonly $group             = new ZDropdownOptionBox([new BoxOption("Default")]);
     readonly $newGroup          = new ZInputBox("");
     readonly $createGroup       = new ZButton("Create");
@@ -588,6 +590,8 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
         this.$title.text("Judge Line");
         this.$body.append(
             $("span").text("Father"), this.$father,
+            $("span").text("Texture"), this.$texture,
+            $("span").text("Anchor"), this.$anchor,
             $("span").text("Group"), this.$group,
             $("span").text("Attach UI"), this.$attachUI,
 
@@ -625,6 +629,29 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
                 editor.operationList.do(new JudgeLineInheritanceChangeOperation(editor.chart, this.target, father));
             }
         });
+        this.$anchor.whenValueChange((content) => {
+            const line = this.target;
+            if (!line) {
+                notify("The target of this editor has been garbage-collected.")
+                return;
+            }
+            const segments = content.split(",");
+            if (segments.length !== 2) {
+                notify("Invalid anchor");
+                return;
+            }
+            const x = parseFloat(segments[0]);
+            const y = parseFloat(segments[1]);
+            editor.operationList.do(new JudgeLinePropChangeOperation(line, "anchor", [x, y]))
+        });
+        this.$texture.whenValueChange((content) => {
+            const line = this.target;
+            if (!line) {
+                notify("The target of this editor has been garbage-collected.")
+                return;
+            }
+            editor.operationList.do(new JudgeLinePropChangeOperation(line, "texture", content))
+        })
         this.$createGroup.onClick(() => {
             if (!this.target) {
                 notify("The target of this editor has been garbage-collected");

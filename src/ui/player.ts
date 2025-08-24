@@ -12,6 +12,8 @@ const RENDER_SCOPE = 900;
 
 const COMBO_TEXT = "KIPPHI"
 
+const BASE_LINE_LENGTH = 4050;
+
 const getVector = (theta: number): [Vector, Vector] => [[Math.cos(theta), Math.sin(theta)], [-Math.sin(theta), Math.cos(theta)]]
 type HEX = number;
 
@@ -40,6 +42,9 @@ class Player {
     lastUncountedNNN: NNNOrTail | null = null;
     lastUncountedTailNNN: NNNOrTail | null = null;
     lastCountedBeats: number = 0;
+
+    
+    textureMapping: Map<string, ImageBitmap> = new Map();
     
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
@@ -300,11 +305,41 @@ class Player {
             }
         }
 
-        context.lineWidth = LINE_WIDTH; // 判定线宽度
-        // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
-        const lineColor = settings.get("lineColor")
-        context.strokeStyle = rgba(...(this.greenLine === judgeLine.id ? ([100, 255, 100] as RGB) : lineColor), alpha / 255)
-        drawLine(context, -2025, 0, 2025, 0) // Fixes #1
+
+        // Draw Line
+        const scaleX = 1.0;
+        const scaleY = 1.0;
+        const anchor = judgeLine.anchor;
+
+        let textureName = judgeLine.texture;
+        if (textureName !== "line.png" && !this.textureMapping.has(textureName)) {
+            textureName = "line.png";
+        }
+        context.scale(1, -1);
+
+        if (textureName === "line.png") {
+            const lineColor: RGB = [200, 200, 120];
+            context.fillStyle = rgba(...(this.greenLine === judgeLine.id ? ([100, 255, 100] as RGB) : lineColor), alpha / 255)
+            const scaledWidth = BASE_LINE_LENGTH * scaleX;
+            const scaledHeight = LINE_WIDTH * scaleY;
+            context.fillRect(-scaledWidth * anchor[0], -scaledHeight * anchor[1], scaledWidth, scaledHeight)
+            // #1
+        } else {
+            context.globalAlpha = alpha / 255;
+            const bitmap = this.textureMapping.get(textureName);
+            const width = bitmap.width;
+            const height = bitmap.height;
+            const scaledWidth = width * scaleX;
+            const scaledHeight = height * scaleY;
+            context.drawImage(this.textureMapping.get(textureName),
+                -scaledWidth * anchor[0], -scaledHeight * anchor[1], scaledWidth, scaledHeight)
+            context.globalAlpha = 1;
+        }
+        context.scale(1, -1)
+
+        // Draw Anchor
+
+
         context.drawImage(ANCHOR, -10, -10)
         context.save();
         context.scale(1, -1);
@@ -670,6 +705,15 @@ class Player {
     }
     receive(chart: Chart) {
         this.chart = chart;
+        // 还是播放器适合处理纹理请求这事（
+
+        const textures = chart.scanAllTextures();
+        textures.delete("line.png");
+        for (const texture of textures) {
+            serverApi.fetchTexture(texture).then((bmp: ImageBitmap) => {
+                this.textureMapping.set(texture, bmp);
+            })
+        }
         this.lastUnplayedNNNode = chart.nnnList.head.next;
     }
 }

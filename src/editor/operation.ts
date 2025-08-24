@@ -858,9 +858,9 @@ class JudgeLineRenameOperation extends Operation {
     }
 }
 
-type JudgeLineValueField = "name" | "rotatesWithFather";
+type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture";
 
-class JudgeLinePropChangeOperation<T extends JudgeLineValueField> extends Operation {
+class JudgeLinePropChangeOperation<T extends JudgeLinePropName> extends Operation {
     updatesEditor = true;
     originalValue: JudgeLine[T];
     constructor(public judgeLine: JudgeLine, public field: T, public value: JudgeLine[T]) {
@@ -937,6 +937,8 @@ class JudgeLineDeleteOperation extends Operation {
         this.originalGroup.add(this.judgeLine);
     }
 }
+
+
 
 class JudgeLineENSChangeOperation extends Operation {
     originalValue: EventNodeSequence;

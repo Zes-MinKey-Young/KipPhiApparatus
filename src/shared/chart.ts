@@ -94,6 +94,7 @@ class Chart {
     modified: boolean = false;
     maxCombo: number = 0;
 
+
     pauseAttach:       JudgeLine | null = null;
     combonumberAttach: JudgeLine | null = null;
     comboAttach:       JudgeLine | null = null;
@@ -318,7 +319,14 @@ class Chart {
             }
         }
         return arr;
-    } 
+    }
+    scanAllTextures() {
+        const textures: Set<string> = new Set;
+        for (const line of this.judgeLines) {
+            textures.add(line.texture);
+        }
+        return textures
+    }
 }
 
 class JudgeLineGroup {

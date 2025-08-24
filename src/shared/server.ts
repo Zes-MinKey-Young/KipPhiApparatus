@@ -91,5 +91,14 @@ class ServerApi extends EventTarget {
             return PROJECT_NAME + "/" + path;
         }
     }
+    async fetchTexture(name: string): Promise<ImageBitmap> {
+        const id = this.chartId;
+        const response = await fetch(`/Resources/${id}/${name}`);
+        if (response.status !== 200) {
+            return null;
+        }
+        const blob = await response.blob();
+        return await createImageBitmap(blob);
+    }
     
 }

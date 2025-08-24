@@ -10,7 +10,7 @@ class RPEChartCompiler {
         console.time("compileChart")
         const chart = this.chart;
         const judgeLineGroups = chart.judgeLineGroups.map(group => group.name);
-        const judgeLineList = chart.judgeLines.map(line => this.dumpJudgeLine(line));
+        const judgeLineList = chart.judgeLines.map(line => this.compileJudgeLine(line));
         const BPMList = chart.timeCalculator.dump();
         const META: MetaData = {
             RPEVersion: 1,
@@ -62,7 +62,7 @@ class RPEChartCompiler {
         };
     }
 
-    dumpJudgeLine(judgeLine: JudgeLine): JudgeLineDataRPE {
+    compileJudgeLine(judgeLine: JudgeLine): JudgeLineDataRPE {
         const chart = this.chart;
         const notes = this.compileNNLists([...judgeLine.nnLists.values()], [...judgeLine.hnLists.values()]);
         
@@ -82,7 +82,9 @@ class RPEChartCompiler {
             father: judgeLine.father?.id ?? -1,
             isCover: judgeLine.cover ? 1 : 0,
             numOfNotes: notes.length,
-
+            anchor: judgeLine.anchor,
+            rotate_with_father: judgeLine.rotatesWithFather,
+            isGif: 0
         };
     }
 

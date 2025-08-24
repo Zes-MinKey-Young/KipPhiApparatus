@@ -547,7 +547,23 @@ class Editor extends EventTarget {
                     notify("Reflow")
                     this.judgeLinesEditor.reflow()
                 }
-            })
+            });
+            // @ts-expect-error
+            this.operationList.addEventListener("do", (e: OperationEvent) => {
+                const operation = e.operation;
+                if (operation instanceof JudgeLinePropChangeOperation && operation.field === "texture") {
+                    const textureName = operation.value;
+                    if (!this.player.textureMapping.has(textureName)) {
+                        serverApi.fetchTexture(textureName).then((bmp) => {
+                            if (!bmp) {
+                                notify("No such texture in the chart's folder.");
+                                return;
+                            }
+                            this.player.textureMapping.set(textureName, bmp)
+                        })
+                    }
+                }
+            });
         });
         window.addEventListener("beforeunload", (e) => {
             if (this.chart.modified) {
