@@ -23,6 +23,34 @@ class RPEChartCompiler {
             offset: chart.offset,
             song: chart.name
         };
+
+        for (const uiName of ["bar", "combo", "combonumber", "level", "name", "pause", "score"] satisfies UIName[]) {
+            const target: JudgeLine | null = chart[`${uiName}Attach` satisfies keyof Chart];
+            if (!target) {
+                continue;
+            }
+            const lineData = judgeLineList[target.id];
+            // RPEJSON里面一条线只能绑一个UI，KPAJSON可以绑多个
+            // 所以如果绑了多个，自动给它们创建子线
+            if (lineData.attachUI) {
+                judgeLineList.push({
+                    Group: 0,
+                    Name: "Auto created for " + uiName,
+                    Texture: "line.png",
+                    attachUI: uiName,
+                    notes: [],
+                    bpmfactor: 1.0,
+                    eventLayers: [],
+                    father: target.id,
+                    isCover: lineData.isCover,
+                    numOfNotes: 0
+                } satisfies Partial<JudgeLineDataRPE> as JudgeLineDataRPE)
+            } else {
+                lineData.attachUI = uiName;
+            }
+        }
+
+
         console.timeEnd("compileChart");
         return {
             BPMList,
