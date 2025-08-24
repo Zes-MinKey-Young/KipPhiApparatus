@@ -10,6 +10,26 @@ import { parse, type ParseError } from 'jsonc-parser';
 import { parse as parseRPEMetadata } from "./RPEInfoParser.ts";
 import StreamZip from 'node-stream-zip';
 import { EventType, NoteType} from '../dist/chartTypes.d.ts'
+import { networkInterfaces } from 'os';
+
+function getLocalNetworkIP() {
+  const nets = networkInterfaces();
+
+  for (const name of Object.keys(nets)) {
+    if (!nets[name]) continue;
+    for (const net of nets[name]) {
+      // 跳过内部地址(127.0.0.1等)和IPv6地址
+      if (!net.internal && net.family === 'IPv4') {
+        // 检查是否为局域网IP地址
+        const ip = net.address;
+        if (ip.startsWith('192.168.')) {
+          return ip;
+        }
+      }
+    }
+  }
+}
+
 
 
 // 在程序开始时设置日志管道
@@ -517,3 +537,4 @@ Bun.serve({
 
 console.log(`Current Working Directory: ${process.cwd()}`);
 console.log("Server started, port: 2460. Press Ctrl+C to exit.");
+console.log(`IP address: ${getLocalNetworkIP()}`);
