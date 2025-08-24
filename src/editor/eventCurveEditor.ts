@@ -222,7 +222,7 @@ class EventCurveEditors extends Z<"div"> {
     }
     target: JudgeLine;
     changeTarget(target: JudgeLine) {
-        ["moveX", "moveY", "alpha", "rotate", "speed"].forEach((type) => {
+        (["moveX", "moveY", "alpha", "rotate", "speed"] as const).forEach((type) => {
             this[type].changeTarget(target, this.selectedLayer)
         })
         this.target = target;
@@ -558,7 +558,6 @@ class EventCurveEditor {
         this.valueRatio = this.innerHeight / lengthOf(this.valueRange);
         this.timeRatio = this.innerWidth / this.timeSpan;
         const {
-            timeSpan: timeRange,
             valueRange,
             timeRatio,
             valueRatio
@@ -575,8 +574,6 @@ class EventCurveEditor {
     }
 
     downHandler(event: MouseEvent | TouchEvent) {
-        const {width, height} = this.canvas;
-        const {padding} = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
         const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
         const coord = canvasCoord.mul(this.invertedMatrix);
@@ -958,10 +955,8 @@ class EventCurveEditor {
                 valueGridSpan = v;
             }
         }
-        console.log("compute 1")
         valueGridSpan = divideOrMul(valueGridSpan, 10 / (lengthOf(this.valueRange) / valueGridSpan));
         
-        console.log("compute 2")
         if (distinctValueCount > 10) {
             this.attachableValues = generateAttachable([valueGridSpan, 0], this.valueRange);
         } else {
@@ -969,9 +964,8 @@ class EventCurveEditor {
             this.attachableValues = Array.from(new Set([...generateAttachable([valueGridSpan, 0], this.valueRange), ...values])).sort((a, b) => a - b);
         }
         
-        console.log("compute 3")
     }
-    changeTarget(line: JudgeLine, index: number) {
+    changeTarget(line: JudgeLine, index: string) {
         if (this.type === EventType.easing) {
             console.error("Easing does not use changeTarget. Assign directly instead.")
             return;
@@ -980,10 +974,9 @@ class EventCurveEditor {
         const seq = line.eventLayers[index][EventType[this.type]];
         if (seq) {
             this.target = seq;
-
         } else {
-            this.target = EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
-            this.target.id = `#${line.id}.${index}.${EventType[this.type]}`;
+            this.target = editor.chart.createEventNodeSequence(this.type, `#${this.target.id}.${index}.${EventType[this.type]}`)
+            notify("Created a new EventNodeSequence. This is not an operation, and thus you cannot undo.");
         }
     }
 

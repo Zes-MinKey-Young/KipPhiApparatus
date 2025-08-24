@@ -255,6 +255,15 @@ class Chart {
     createNNNode(time: TimeT) {
      return new NNNode(time)
     }
+    createEventNodeSequence(type: EventType, name: string) {
+        if (this.sequenceMap.has(name)) {
+            throw new Error(`The name ${name} is occupied.`)
+        }
+        const seq = EventNodeSequence.newSeq(type, this.getEffectiveBeats());
+        seq.id = name;
+        this.sequenceMap.set(name, seq);
+        return seq;
+    }
     countMaxCombo() {
         let combo = 0;
         const nnnlist = this.nnnList;
