@@ -333,7 +333,7 @@ class NoteNode extends NoteNodeLike<NodeType.MIDDLE> implements TwoDirectionNode
         this.notes.splice(this.notes.indexOf(note), 1)
         note.parentNode = null
     }
-    static disconnect<T extends Connectee>(note1: T | Header<T>, note2: T | Tailer<T>) {
+    static disconnect<T extends Connectee>(note1: T, note2: T) {
         if (note1) {
             note1.next = null;
         }

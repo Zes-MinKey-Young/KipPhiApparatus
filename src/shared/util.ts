@@ -5,30 +5,11 @@ interface ListNode<T> {
 }
 
 interface TwoDirectionNode {
-    previous: TwoDirectionNode | Header<TwoDirectionNode>;
-    next: TwoDirectionNode | Tailer<TwoDirectionNode>;
-}
-
-interface List<TN extends TwoDirectionNode> {
-    head: Header<TN>
-    tail: Tailer<TN>
-}
-
-interface Header<TN extends TwoDirectionNode> {
-    next: TN;
-    heading: true;
-    parentSeq: List<TN>;
+    previous: TwoDirectionNode;
+    next: TwoDirectionNode;
 }
 
 
-
-interface Tailer<TN extends TwoDirectionNode> {
-    previous: TN;
-    tailing: true;
-    parentSeq: List<TN>;
-}
-type TypeOrHeader<T extends TwoDirectionNode> = Header<T> | T
-type TypeOrTailer<T extends TwoDirectionNode> = Tailer<T> | T
 
 const connect = <T>(foreNode: ListNode<T>, lateNode: ListNode<T>) => {
     foreNode.next = lateNode;
