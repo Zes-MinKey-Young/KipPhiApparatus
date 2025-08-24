@@ -131,7 +131,39 @@ abstract class Operation {
     toString(): string {
         return this.constructor.name;
     }
+    static lazy<C extends new (...args: any[]) => any = typeof this>(this: C, ...args: ConstructorParameters<C>) {
+        return new LazyOperation<C>(this, ...args)
+    }
 }
+
+
+
+
+/**
+ * 懒操作，实例化的时候不记录任何数据，do的时候才执行真正实例化
+ * 防止连续的操作中状态改变导致的错误
+ */
+class LazyOperation<C extends new (...args: any[]) => any> extends Operation {
+    public operationClass: C;
+    public args: ConstructorParameters<C>;
+    public operation: InstanceType<C> | null = null;
+    constructor(
+        operationClass: C,
+        ...args: ConstructorParameters<C>
+    ) {
+        super();
+        this.operationClass = operationClass;
+        this.args = args;
+    }
+    do(chart: Chart) {
+        this.operation = new this.operationClass(...this.args);
+        this.operation.do(chart);
+    }
+    undo(chart: Chart) {
+        this.operation.undo(chart);
+    }
+}
+
 
 class ComplexOperation<T extends Operation[]> extends Operation {
     subOperations: T;
@@ -206,9 +238,6 @@ class NotePropChangeOperation<T extends NotePropName> extends Operation {
         return false;
     }
 }
-
-
-
 class NoteRemoveOperation extends Operation {
     noteNode: NoteNode;
     note: Note;
@@ -586,10 +615,10 @@ class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperatio
     }
 }
 
-class MultiNodeDeleteOperation extends ComplexOperation<EventNodePairRemoveOperation[]> {
+class MultiNodeDeleteOperation extends ComplexOperation<LazyOperation<typeof EventNodePairRemoveOperation>[]> {
     updatesEditor = true;
     constructor(nodes: EventStartNode[]) {
-        super(...nodes.map(node => new EventNodePairRemoveOperation(node)));
+        super(...nodes.map(node => EventNodePairRemoveOperation.lazy(node)));
     }
 }
 
