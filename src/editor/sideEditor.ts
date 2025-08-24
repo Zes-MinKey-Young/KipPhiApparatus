@@ -536,9 +536,17 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
     }
 }
 
+async function searchTexture(prefix: string) {
+    const textures = await serverApi.queryTextures();
+    if (!textures.includes("line.png")) {
+        textures.push("line.png");
+    }
+    return textures.filter(texture => texture.startsWith(prefix));
+}
+
 class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     readonly $father            = new ZInputBox("-1");
-    readonly $texture           = new ZInputBox("line.png");
+    readonly $texture           = new ZSearchBox(searchTexture);
     readonly $anchor            = new ZInputBox("0.5, 0.5");
     readonly $group             = new ZDropdownOptionBox([new BoxOption("Default")]);
     readonly $newGroup          = new ZInputBox("");
@@ -640,8 +648,8 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
                 notify("Invalid anchor");
                 return;
             }
-            const x = parseFloat(segments[0]);
-            const y = parseFloat(segments[1]);
+            const x = parseFloat(segments[0].trim());
+            const y = parseFloat(segments[1].trim());
             editor.operationList.do(new JudgeLinePropChangeOperation(line, "anchor", [x, y]))
         });
         this.$texture.whenValueChange((content) => {
@@ -764,6 +772,8 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
         this.updateGroups(editor.chart.judgeLineGroups);
         this.updateAttach();
         this.$group.value = this.$group.options.find(option => option.text === judgeLine.group.name);
+        this.$anchor.setValue(judgeLine.anchor.join(", "));
+        this.$texture.value = judgeLine.texture;
         const layer = judgeLine.eventLayers[this.$eventLayerIdInput.getValue()]
         if (layer) {
             const seq = layer[this.$eventType.value.text as BasicEventName];

@@ -158,6 +158,9 @@ class Z<K extends HTMLElementTagName> extends EventTarget {
         this.element.append(fragment);
         return this;
     }
+    isFocused() {
+        return this.element === document.activeElement;
+    }
 }
 
 const $: <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => Z<K>
@@ -609,27 +612,57 @@ class ZEditableDropdownOptionBox extends Z<"div"> {
     }
 }
 
+const THRESHOLD = 100
 
 class ZSearchBox extends Z<"div"> {
     count = 5
     readonly $value = new ZInputBox("");
     readonly $options = $("div").addClass("dropdown-option-list")
+    lastFocusOutTime = 0;
 
-    constructor(searchable: (s: string) => string[], up: boolean=false) {
+    constructor(searchable: (s: string) => (string[] | Promise<string[]>), up: boolean=false) {
         super("div");
         this.addClass("search-box");
         this.append($("span").append(this.$options));
         this.append(this.$value);
         this.$value.onInput(() => {
             const optionStrings = searchable(this.$value.getValue());
-            this.replaceWithOptions(optionStrings.slice(0, 5));
+            if (Array.isArray(optionStrings)) {
+                this.replaceWithOptions(optionStrings.slice(0, this.count));
+            } else {
+                optionStrings.then(strings => {
+                    this.replaceWithOptions(strings.slice(0, this.count));
+                });
+            }
         });
+        // 如果直接点下拉提示选项，直接判定focusout了，还没有修改值就触发监听器了
+        // 所以不去直接监听输入框，而是监听输入框等50ms后再触发事件。
+        this.$value.whenValueChange(() => {
+            setTimeout(() => {
+                this.dispatchEvent(new ZValueChangeEvent());
+            }, 50);
+            this.lastFocusOutTime = performance.now()
+        })
     }
     replaceWithOptions(strings: string[]) {
         this.$options.html("");
         this.$options.appendMass(() => {
             for (const string of strings) {
-                this.$options.append($("div").addClass("box-option").text(string));
+                const $option = $("div").addClass("box-option").text(string);
+                $option.onClick(() => {
+                    this.value = string;
+                    // 点击的时候focused已经没了，不能用这个作为依据判断
+                    if (!this.wasInputing()) {
+                        this.dispatchEvent(new ZValueChangeEvent());
+                    } else {
+                        // 输入的时候点和鼠标悬浮时点是不一样的，
+                        // 输入时点不应该保持下拉框，所以强行关掉，100ms后恢复可见性
+                        // 但这时是需要重新悬浮的。
+                        this.$options.hide();
+                        setTimeout(() => this.$options.show(), 100);
+                    }
+                })
+                this.$options.append($option);
             }
         });
     }
@@ -640,7 +673,9 @@ class ZSearchBox extends Z<"div"> {
         this.$value.setValue(value);
     }
     whenValueChange(callback: (value: string, e: Event) => void) {
-        this.$value.whenValueChange(callback)
+        this.addEventListener("valueChange", (event) => {
+            callback(this.value, event);
+        });
     }
     private _disabled = false;
     get disabled() {
@@ -652,6 +687,9 @@ class ZSearchBox extends Z<"div"> {
         }
         this._disabled = disabled;
         this.$value.disabled = disabled;
+    }
+    wasInputing() {
+        return performance.now() - this.lastFocusOutTime < 100;
     }
 }
 class ZMemorableBox extends ZSearchBox {

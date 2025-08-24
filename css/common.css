@@ -77,7 +77,9 @@ dialog[open] {
     position: absolute;
 }
 
-.dropdown-option-box:hover .dropdown-option-list, .search-box:has(> input:focus) .dropdown-option-list {
+.dropdown-option-box:hover .dropdown-option-list,
+.search-box:has(> input:focus) .dropdown-option-list,
+.search-box:hover .dropdown-option-list {
     display: block;
     background-color: #BBB;
     border: 1px solid black;

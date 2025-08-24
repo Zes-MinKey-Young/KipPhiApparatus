@@ -312,7 +312,7 @@ class Player {
         const anchor = judgeLine.anchor;
 
         let textureName = judgeLine.texture;
-        if (textureName !== "line.png" && !this.textureMapping.has(textureName)) {
+        if (textureName !== "line.png" && !this.textureMapping.get(textureName)) {
             textureName = "line.png";
         }
         context.scale(1, -1);

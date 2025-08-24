@@ -553,6 +553,9 @@ class Editor extends EventTarget {
                 const operation = e.operation;
                 if (operation instanceof JudgeLinePropChangeOperation && operation.field === "texture") {
                     const textureName = operation.value;
+                    if (textureName === "line.png") {
+                        return;
+                    }
                     if (!this.player.textureMapping.has(textureName)) {
                         serverApi.fetchTexture(textureName).then((bmp) => {
                             if (!bmp) {

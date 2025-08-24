@@ -100,5 +100,15 @@ class ServerApi extends EventTarget {
         const blob = await response.blob();
         return await createImageBitmap(blob);
     }
+    async queryTextures(): Promise<string[]> { 
+        const id = this.chartId;
+        const response = await fetch(`/Resources/${id}/textures`);
+        if (response.status !== 200) {
+            return [];
+        } else {
+            const json = await response.json();
+            return json.textures;
+        }
+    }
     
 }

@@ -171,6 +171,7 @@ canvas#player {
     padding: 3em 2em;
     grid-template-columns: 3fr 7fr;
     overflow: auto;
+    row-gap: 0.5em;
 }
 
 .side-editor.user-script-editor .side-editor-body {

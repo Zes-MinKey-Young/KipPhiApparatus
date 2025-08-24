@@ -12,6 +12,12 @@ import StreamZip from 'node-stream-zip';
 import { EventType, NoteType} from '../dist/chartTypes.d.ts'
 import { networkInterfaces } from 'os';
 
+
+const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp', '.tiff', '.tif', '.psd', '.ai', '.eps', '.svgz', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp', '.tiff', '.tif', '.psd', '.ai', '.eps', '.svgz']);
+function isImage(fileName: string) {
+  return imageExtensions.has(fileName.toLowerCase().substring(fileName.lastIndexOf('.')));
+}
+
 function getLocalNetworkIP() {
   const nets = networkInterfaces();
 
@@ -456,6 +462,15 @@ Bun.serve({
         },
         "/Resources/:id/diff": async (req: BunRequest) => {
             return new Response(Bun.file("../html/diff.html"))
+        },
+        "/Resources/:id/textures": async (req: BunRequest) => {
+            // @ts-ignore
+            const id: string = req.params.id;
+            const folder = "../Resources/" + id;
+            const files = await readdir(folder);
+            return Response.json({
+                textures: files.filter(file => isImage(file))
+            })
         },
         "/Resources/:id/history/:version": async (req: BunRequest) => {
             const { id, version } = req.params;
