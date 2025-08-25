@@ -176,6 +176,25 @@ class NoteEditor extends SideEntityEditor<Note> {
     }
 }
 
+type CanRepresentTime = TimeT | number | string
+
+const processTimeArg = (time: CanRepresentTime) => {
+    if (typeof time === "string") {
+        try {
+            return processTimeArg(time.match(/^(\d+):(\d+)\/(\d+)$/).map(s => parseInt(s)) as TimeT);
+        } catch (e) {
+            throw new Error(`Invalid time format: ${time}`);
+        }
+    } else if (typeof time === "number") {
+        return time;
+    } else {
+        time = [...time]; // 防止从别的什么地方找来一个数据
+        TimeCalculator.validateIp(time); // 原地规范化，如果失败就会抛错误，这里不用捕获
+        return TimeCalculator.toBeats(time);
+    }
+}
+
+
 /**
  * 多音符编辑的辅助函数
  * @param note 原封不动传入音符
@@ -184,12 +203,84 @@ class NoteEditor extends SideEntityEditor<Note> {
  * @param end 结束点
  * @returns
  */
-const fillCurve = (note: Note, easingFunc: (t: number) => number, start: [TimeT, number], end: [TimeT, number]): number => {
-    const startBeats = TimeCalculator.toBeats(start[0]);
-    const endBeats = TimeCalculator.toBeats(end[0]);
+const fillCurve = (note: Note | EventNode, easingFunc: ((t: number) => number) | Easing, start: [CanRepresentTime, number], end: [CanRepresentTime, number]): number => {
+    if (easingFunc instanceof Easing) {
+        const easing = easingFunc;
+        easingFunc = (t) => easing.getValue(t);
+    }
+    const startBeats = processTimeArg(start[0]);
+    const endBeats = processTimeArg(end[0]);
     const timeDelta = endBeats - startBeats;
     const valueDelta = end[1] - start[1];
-    return easingFunc((TimeCalculator.toBeats(note.startTime) - startBeats) / timeDelta) * valueDelta + start[1];
+    return easingFunc((TimeCalculator.toBeats("startTime" in note ? note.startTime : note.time) - startBeats) / timeDelta) * valueDelta + start[1];
+}
+
+
+const snippets = {
+blank: "",
+"fillCurve (with comments)": `fillCurve(
+// note to be modified
+// 要修改的音符/节点
+    note,
+// Any easing function
+// Note: there is no "easeIn/Out/InOutLinear" function.
+// Use linear(t) instead.
+// You can also use an easing object as parameter.
+// e. g. easingMap.linear.in, easingMap.cubic.inout,
+// editor.chart.templateEasingLib.get("myTemplateEasing")
+// 任意缓动函数
+// 注意线性缓动函数就是linear(t)，
+// 没有easeIn/Out/InOutLinear这几种说法
+// 也可以把缓动对象作为参数
+    easeInOutQuad,
+    [
+// 起始时间 Starting Time
+// 可以是[整数, 分子, 分母] Can be [int, nume, deno]
+// "整数:分子/分母" "int:nume/deno" e.g.     "0:0:1"
+// 或者就直接写一个数字 Or just a number e.g. 0
+        [0, 0, 1],
+// 起始值 Starting Value
+        114
+    ],
+    [
+// 结束时间 Ending time
+        [1, 0, 1],
+// 结束值 Ending Value
+        514
+    ]
+)`,
+fillCurve: `fillCurve(
+    noteOrNode,
+    easeInOutQuad,
+    [
+        [0, 0, 1],
+        114
+    ],
+    [
+        [1, 0, 1],
+        514
+    ]
+)`,
+help: `
+// 这是多事件/音符编辑的帮助文档。
+// 你需要在当前文本框输入一个JavaScript表达式，然后点击Execute。
+// 该表达式在一个函数中运行，函数接收两个参数：
+// note/node 当前音符/节点 val 当前音符/节点的原有属性值
+// 例如，如果您在编辑多个音符，在属性下拉框中选中positionX，
+// 在此代码框中输入：val + 100，然后点击Execute，
+// 则所有音符的positionX都会被加上100。
+// 如果你在编辑多个事件节点，
+// 你可以选择开始、结束、背靠背、面对面四种模式。
+
+// This is the help documentation of multi-note/node editor.
+// You need to input a JavaScript expression in the code textarea, then click Execute.
+// The expression will be run in a function that receives two parameters:
+// 'note'/'node' The current note/node, 'val' The original value of the note/node
+// For example, if you are editing multiple notes, select positionX in the property dropdown,
+// input val + 100 in the code box, and click Execute, all notes' positionX will be added 100.
+// If you are editing multiple nodes,
+// you can choose four modes: start, end, back-to-back, face-to-face.
+`
 }
 
 
@@ -203,6 +294,8 @@ class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
     ].map((n) => new BoxOption(n)));
     readonly $code             = new ZTextArea();
     readonly $execute          = new ZButton("Execute").addClass("progressive");
+    readonly $snippets         = new ZDropdownOptionBox(Object.keys(snippets).map((n) => new BoxOption(n)))
+                                    .css("width", "100%")
     readonly $fillDensityInput = new ZFractionInput();
     readonly $fill             = new ZButton("Fill").addClass("progressive");
     readonly $fillWarning      = $("span").addClass("side-editor-warning")
@@ -211,8 +304,7 @@ class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
         super();
         this.$title.text("Multi Notes");
         this.$body.append(
-            this.$delete,
-            this.$reverse,
+            this.$delete, this.$reverse,
             $("span")
                 .addClass("flex-row")
                 .append(
@@ -222,6 +314,9 @@ class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
                     $("span").text(" = ")
                 ),
             $("div").append(this.$code, this.$execute),
+
+            $("span").text("Snippets"), this.$snippets,
+
             $("span").text("Fill each neighbors with step: "),
             $("div").addClass("flex-row").append(this.$fillDensityInput, this.$fill),
             this.$fillWarning
@@ -260,6 +355,9 @@ class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
                     })
                 )
             )
+        });
+        this.$snippets.whenValueChange((name) => {
+            this.$code.setValue(snippets[name]);
         });
         this.$fill.onClick(() => {
             const step = this.$fillDensityInput.getValue();
@@ -322,7 +420,9 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
     readonly $delete            = new ZButton("Delete").addClass("destructive");
     readonly $startEndOptionBox = new ZDropdownOptionBox([
         "start",
-        "end"
+        "end",
+        "back-to-back",
+        "face-to-face"
     ].map((v) => new BoxOption(v)));
     readonly $propOptionBox = new ZDropdownOptionBox([
         "value",
@@ -330,6 +430,9 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
     ].map((x) => new BoxOption(x)));
     readonly $code          = new ZTextArea();
     readonly $execute       = new ZButton("Execute");
+    
+    readonly $snippets      = new ZDropdownOptionBox(Object.keys(snippets).map((n) => new BoxOption(n)))
+                                   .css("width", "100%")
     constructor() {
         super();
         this.$title.text("Multi Nodes");
@@ -346,16 +449,54 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
                     this.$propOptionBox,
                     $("span").text(" = ")
                 ),
-            $("div").append(this.$code, this.$execute)
+            $("div").append(this.$code, this.$execute),
+
+            $("span").text("Snippets"), this.$snippets,
+
+            
         );
 
         this.$execute.onClick(() => {
             const code = this.$code.getValue();
             const fn = new Function("val", "node", "return " + code);
-            let sortedNodes: EventStartNode[] | EventEndNode[] = [...this.target].sort((a, b) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
+            let sortedNodes: (EventStartNode | EventEndNode)[] = [...this.target].sort((a, b) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
             const startOrEnd = this.$startEndOptionBox.value.text;
             if (startOrEnd === "end") {
                 sortedNodes = sortedNodes.map(n => n.next).filter(n => n.type === NodeType.MIDDLE);
+            } else if (startOrEnd === "back-to-back") {
+                const nodes = [];
+                const len = sortedNodes.length;
+                if (len > 0) {
+                    const node = sortedNodes[0];
+                    const end = node.previous;
+                    if (end.type !== NodeType.HEAD) {
+                        nodes.push(end);
+                    }
+                    nodes.push(node);
+                }
+                for (let i = 1; i < len; i++) {
+                    const node = sortedNodes[i];
+                    const end = node.previous;
+                    nodes.push(end);
+                    nodes.push(node)
+                }
+                sortedNodes = nodes;
+            } else if (startOrEnd === "face-to-face") {
+                const nodes = [];
+                const len = sortedNodes.length
+                for (let i = 0; i < len - 1; i++) {
+                    const node = sortedNodes[i];
+                    const end = node.next;
+                    nodes.push(node);
+                    nodes.push(end);
+                }
+                const node = sortedNodes[len - 1];
+                const end = node.next;
+                nodes.push(node);
+                if (end.type !== NodeType.TAIL) {
+                    nodes.push(end);
+                }
+                sortedNodes = nodes;
             }
             const prop = this.$propOptionBox.value.text;
             editor.operationList.do(
@@ -367,7 +508,10 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
                     })
                 )
             )
-        })
+        });
+        this.$snippets.whenValueChange((name) => {
+            this.$code.setValue(snippets[name]);
+        });
         
         this.$reverse.onClick(() => {
             editor.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))))

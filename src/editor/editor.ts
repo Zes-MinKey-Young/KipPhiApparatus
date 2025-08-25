@@ -512,7 +512,8 @@ class Editor extends EventTarget {
             this.$tipsLabel
         )
 
-        this.addEventListener("chartloaded", (e) => { 
+        this.addEventListener("chartloaded", (e) => {
+            document.title = this.chart.name + " - " + document.title;
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence
             this.$offsetInput.setValue(this.chart.offset.toString());
             this.operationList.addEventListener("firstmodified", () => {
@@ -575,14 +576,15 @@ class Editor extends EventTarget {
             }
         })
         window.addEventListener("keydown", (e: KeyboardEvent) => {
-            if ((e.key ==="z" || e.key === "y") && document.activeElement === document.body) {
+            const key = e.key.toLowerCase();
+            if ((key ==="z" || key === "y") && document.activeElement === document.body) {
                 e.preventDefault();
             } else {
                 return;
             }
-            if (e.key === "z") {
+            if (key === "z") {
                 this.operationList?.undo();
-            } else if (e.key === "y") {
+            } else if (key === "y") {
                 this.operationList?.redo();
             }
         })
