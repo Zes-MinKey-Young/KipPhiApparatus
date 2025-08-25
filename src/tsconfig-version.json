@@ -1,0 +1,8 @@
+{
+    "compilerOptions": {
+        "outFile": "../dist/version.js"
+    },
+    "include": [
+        "version.ts"
+    ]
+}

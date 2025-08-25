@@ -1,4 +1,5 @@
-declare const VERSION = "1.6.1";
+declare const VERSION = 170;
+declare const VERSION_STRING = "1.7.0";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -251,15 +252,19 @@ declare const rpeEasingArray: NormalEasing[];
 declare const MIN_LENGTH = 128;
 declare const MAX_LENGTH = 1024;
 declare const MINOR_PARTS = 16;
-type EndNextFn<T extends TwoDirectionNode> = (node: TypeOrTailer<T> | Header<T>) => [endBeats: number, next: TypeOrTailer<T>];
-declare const breakpoint: () => never;
-declare class JumpArray<T extends TwoDirectionNode> {
+type EndNextFn<T extends TwoDirectionNode> = (node: T) => [endBeats: number, next: T];
+interface TwoDirectionNodeLike {
+    next: this | null;
+    previous: this | null;
+    type: NodeType;
+}
+declare class JumpArray<T extends TwoDirectionNodeLike> {
     endNextFn: EndNextFn<T>;
     nextFn: (node: T, beats: number) => T | false;
-    resolveLastNode: (node: TypeOrTailer<T>) => TypeOrTailer<T>;
-    header: Header<T>;
-    tailer: Tailer<T>;
-    array: (TypeOrTailer<T>[] | TypeOrTailer<T>)[];
+    resolveLastNode: (node: T) => T;
+    header: T;
+    tailer: T;
+    array: (T[] | T)[];
     averageBeats: number;
     effectiveBeats: number;
     goPrev: (node: T) => T;
@@ -272,7 +277,7 @@ declare class JumpArray<T extends TwoDirectionNode> {
      * @param endNextFn 接收一个节点，返回该节点分管区段拍数，并给出下个节点。若抵达尾部，返回[null, null]（停止遍历的条件是抵达尾部而不是得到null）
      * @param nextFn 接收一个节点，返回下个节点。如果应当停止，返回false。
      */
-    constructor(head: Header<T>, tail: Tailer<T>, originalListLength: number, effectiveBeats: number, endNextFn: EndNextFn<T>, nextFn: (node: T, beats: number) => T | false, resolveLastNode?: (node: TypeOrTailer<T>) => TypeOrTailer<T>);
+    constructor(head: T, tail: T, originalListLength: number, effectiveBeats: number, endNextFn: EndNextFn<T>, nextFn: (node: T, beats: number) => T | false, resolveLastNode?: (node: T) => T);
     updateEffectiveBeats(val: number): void;
     updateAverageBeats(): void;
     /**
@@ -280,33 +285,40 @@ declare class JumpArray<T extends TwoDirectionNode> {
      * @param firstNode 不含
      * @param lastNode 含
      */
-    updateRange(firstNode: TypeOrHeader<T>, lastNode: TypeOrTailer<T>): void;
-    getPreviousOf(node: T, beats: number): T | Header<T>;
+    updateRange(firstNode: T, lastNode: T): void;
+    getPreviousOf(node: T, beats: number): T;
     /**
      *
      * @param beats 拍数
      * @ param usePrev 可选，若设为true，则在取到事件头部时会返回前一个事件（即视为左开右闭）
-     * @returns 时间索引链表的节点
+     * @returns 时间索引链表的节点，一般不是head
      */
-    getNodeAt(beats: number): T | Tailer<T>;
-}
-/**
- * @deprecated
- */
-declare class Pointer<T extends TwoDirectionNode> {
-    beats: number;
-    node: T | Tailer<T>;
-    before: number;
-    constructor();
-    pointTo(node: TypeOrTailer<T>, beats: number, counts?: boolean): void;
+    getNodeAt(beats: number): T;
 }
 /**
  * @author Zes M Young
  */
 declare const NNLIST_Y_OFFSET_HALF_SPAN = 100;
-declare const node2string: (node: NoteNode | Tailer<NoteNode>) => string;
+declare const node2string: (node: AnyNN) => string;
 declare const rgb2hex: (rgb: RGB) => number;
 declare const hex2rgb: (hex: number) => RGB;
+declare const notePropTypes: {
+    above: string;
+    alpha: string;
+    endTime: string[];
+    isFake: string;
+    positionX: string;
+    size: string;
+    speed: string;
+    startTime: string[];
+    type: string;
+    visibleTime: string;
+    visibleBeats: string;
+    yOffset: string;
+    tint: string[];
+    tintHitEffects: string[];
+    judgeSize: string;
+};
 /**
  * 音符
  * Basic element in music game.
@@ -350,7 +362,24 @@ declare class Note {
     dumpKPA(): NoteDataKPA;
 }
 type Connectee = NoteNode | NNNode;
-declare class NoteNode implements TwoDirectionNode {
+declare const enum NodeType {
+    HEAD = 0,
+    TAIL = 1,
+    MIDDLE = 2
+}
+type NNOrHead = NoteNode | NoteNodeLike<NodeType.HEAD>;
+type NNOrTail = NoteNode | NoteNodeLike<NodeType.TAIL>;
+type AnyNN = NoteNode | NoteNodeLike<NodeType.HEAD> | NoteNodeLike<NodeType.TAIL>;
+declare class NoteNodeLike<T extends NodeType> {
+    type: T;
+    next: NNOrTail;
+    _previous: WeakRef<NNOrHead> | null;
+    parentSeq: NNList;
+    get previous(): NNOrHead;
+    set previous(val: NNOrHead);
+    constructor(type: T);
+}
+declare class NoteNode extends NoteNodeLike<NodeType.MIDDLE> implements TwoDirectionNode {
     totalNode: NNNode;
     readonly startTime: TimeT;
     /**
@@ -358,13 +387,9 @@ declare class NoteNode implements TwoDirectionNode {
      * If they are holds, they are ordered by their endTime, from late to early.
      */
     readonly notes: Note[];
-    next: TypeOrTailer<NoteNode>;
-    _previous: WeakRef<TypeOrHeader<NoteNode>> | null;
-    get previous(): TypeOrHeader<NoteNode>;
-    set previous(val: TypeOrHeader<NoteNode>);
     parentSeq: NNList;
     chart: Chart;
-    static count: number;
+    private static count;
     id: number;
     constructor(time: TimeT);
     static fromKPAJSON(data: NoteNodeDataKPA, timeCalculator: TimeCalculator): NoteNode;
@@ -378,9 +403,9 @@ declare class NoteNode implements TwoDirectionNode {
      */
     sort(index: number): void;
     remove(note: Note): void;
-    static disconnect<T extends Connectee>(note1: T | Header<T>, note2: T | Tailer<T>): void;
-    static connect<T extends Connectee>(note1: T | Header<T>, note2: T | Tailer<T>): void;
-    static insert<T extends Connectee>(note1: TypeOrHeader<T>, inserted: T, note2: TypeOrTailer<T>): void;
+    static disconnect<T extends Connectee>(note1: T, note2: T): void;
+    static connect(note1: NNOrHead, note2: NNOrTail): void;
+    static insert(note1: NNOrHead, inserted: NoteNode, note2: NNOrTail): void;
     dump(): NoteNodeDataKPA;
 }
 declare class NNList {
@@ -388,20 +413,19 @@ declare class NNList {
     medianYOffset: number;
     /** 格式为#xxoxx或$xxoxx，亦可自命名 */
     id: string;
-    head: Header<NoteNode>;
-    tail: Tailer<NoteNode>;
-    currentPoint: NoteNode | Header<NoteNode>;
+    head: NoteNodeLike<NodeType.HEAD>;
+    tail: NoteNodeLike<NodeType.TAIL>;
+    currentPoint: NNOrHead;
     /** 定位上个Note头已过，本身未到的Note */
-    jump: JumpArray<NoteNode>;
+    jump: JumpArray<AnyNN>;
     timesWithNotes: number;
     timeRanges: [number, number][];
     effectiveBeats: number;
     parentLine: JudgeLine;
     constructor(speed: number, medianYOffset?: number, effectiveBeats?: number);
     /** 此方法永远用于最新KPAJSON */
-    static fromKPAJSON(isHold: boolean, effectiveBeats: number, data: NNListDataKPA, nnnList: NNNList, timeCalculator: TimeCalculator): NNList;
+    static fromKPAJSON<T extends boolean>(isHold: T, effectiveBeats: number, data: NNListDataKPA, nnnList: NNNList, timeCalculator: TimeCalculator): T extends true ? HNList : NNList;
     initJump(): void;
-    initPointer(pointer: Pointer<NoteNode>): void;
     /**
      *
      * @param beats 目标位置
@@ -409,73 +433,13 @@ declare class NNList {
      * @param pointer 指针，实现查询位置缓存
      * @returns
      */
-    getNodeAt(beats: number, beforeEnd?: boolean, pointer?: Pointer<NoteNode>): NoteNode | Tailer<NoteNode>;
+    getNodeAt(beats: number, beforeEnd?: boolean): NNOrTail;
     /**
      * Get or create a node of given time
      * @param time
      * @returns
      */
     getNodeOf(time: TimeT): NoteNode;
-    /**
-     * @deprecated
-     * @param pointer
-     * @param beats
-     * @param jump
-     * @param useEnd
-     * @returns
-     * /
-    movePointerWithGivenJumpArray(pointer: Pointer<NoteNode>, beats: number, jump: JumpArray<NoteNode>, useEnd: boolean=false): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        const distance = NoteTree.distanceFromPointer(beats, pointer, useEnd);
-        const original = pointer.node;
-        beats >= 4 && console.log(pointer, beats, distance, jump, this)
-        if (distance === 0) {
-            pointer.beats = beats;
-            return [original, original, 0]
-        }
-        const delta = beats - pointer.beats;
-        if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
-            const end = jump.getNodeAt(beats);
-            console.log("end, beats", end, beats)
-            if (!end) {
-                debugger;
-            }
-            pointer.pointTo(end, beats)
-            return [original, end, distance]
-        }
-        let end: TypeOrTailer<NoteNode>;
-        if (distance === 1) {
-            end = (<NoteNode>original).next // 多谢了个let，特此留念
-        } else if (distance === -1) {
-            end = "heading" in original.previous ? original : original.previous;
-        }
-        if (!end) {
-            debugger;
-        }
-        pointer.pointTo(end, beats)
-        return [original, end, distance]
-    }
-    // */
-    /**
-     * @deprecated
-     * /
-    movePointerBeforeStart(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump)
-    }
-    /**
-     * @deprecated
-     * /
-    movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true)
-    }
-    // */
-    /**
-     * @deprecated
-     */
-    static distanceFromPointer<T extends NNNode | NoteNode>(beats: number, pointer: Pointer<T>, useEnd?: boolean): 1 | 0 | -1;
-    /**
-     * To find the note's previous(Sibling) if it is to be inserted into the tree
-     * @param note
-     */
     dumpKPA(): NNListDataKPA;
 }
 /**
@@ -487,33 +451,32 @@ declare class HNList extends NNList {
     /**
      * 最早的还未结束Hold
      */
-    holdTailJump: JumpArray<NoteNode>;
+    holdTailJump: JumpArray<AnyNN>;
     constructor(speed: number, medianYOffset: number, effectiveBeats?: number);
     initJump(): void;
-    /**
-     *
-     * @param pointer
-     * @param beats
-     * @returns
-     * /
-    movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.holdTailJump, true);
-    }
-    //*/
-    getNodeAt(beats: number, beforeEnd?: boolean): TypeOrTailer<NoteNode>;
+    getNodeAt(beats: number, beforeEnd?: boolean): NNOrTail;
     insertNoteJumpUpdater(note: NoteNode): () => void;
 }
-declare class NNNode implements TwoDirectionNode {
+type NNNOrHead = NNNode | NNNodeLike<NodeType.HEAD>;
+type NNNOrTail = NNNode | NNNodeLike<NodeType.TAIL>;
+type AnyNNN = NNNode | NNNodeLike<NodeType.HEAD> | NNNodeLike<NodeType.TAIL>;
+declare class NNNodeLike<T extends NodeType> {
+    type: T;
+    previous: NNNOrHead;
+    next: NNNOrTail;
+    startTime: TimeT;
+    constructor(type: T);
+}
+declare class NNNode extends NNNodeLike<NodeType.MIDDLE> implements TwoDirectionNode {
     readonly noteNodes: NoteNode[];
     readonly holdNodes: NoteNode[];
     readonly startTime: TimeT;
-    real: number;
     noteOfType: [number, number, number, number];
-    previous: TypeOrHeader<NNNode>;
-    next: TypeOrTailer<NNNode>;
     constructor(time: TimeT);
     get endTime(): TimeT;
     add(node: NoteNode): void;
+    static connect(note1: NNNOrHead, note2: NNNOrTail): void;
+    static insert(note1: NNNOrHead, inserted: NNNode, note2: NNNOrTail): void;
 }
 /**
  * 二级音符节点链表
@@ -522,19 +485,15 @@ declare class NNNode implements TwoDirectionNode {
  * NN is the abbreviation of NoteNode, which stores the notes with the same startTime.
  */
 declare class NNNList {
-    jump: JumpArray<NNNode>;
+    jump: JumpArray<AnyNNN>;
     parentChart: Chart;
-    head: Header<NNNode>;
-    tail: Tailer<NNNode>;
-    editorPointer: Pointer<NNNode>;
+    head: NNNodeLike<NodeType.HEAD>;
+    tail: NNNodeLike<NodeType.TAIL>;
     effectiveBeats: number;
     timesWithNotes: number;
     constructor(effectiveBeats: number);
     initJump(): void;
-    movePointerBeforeStart(pointer: Pointer<NNNode>, beats: number): [TypeOrTailer<NNNode>, TypeOrTailer<NNNode>, number];
-    movePointerBeforeEnd(pointer: Pointer<NNNode>, beats: number): [TypeOrTailer<NNNode>, TypeOrTailer<NNNode>, number];
-    movePointerWithGivenJumpArray(pointer: Pointer<NNNode>, beats: number, jump: JumpArray<NNNode>, useEnd?: boolean): [TypeOrTailer<NNNode>, TypeOrTailer<NNNode>, number];
-    getNodeAt(beats: number, beforeEnd?: boolean, pointer?: Pointer<NNNode>): NNNode | Tailer<NNNode>;
+    getNodeAt(beats: number, beforeEnd?: boolean): NNNode | NNNodeLike<NodeType.TAIL>;
     getNode(time: TimeT): NNNode;
     addNoteNode(noteNode: NoteNode): void;
 }
@@ -557,6 +516,13 @@ declare class JudgeLine {
     moveY: number;
     rotate: number;
     alpha: number;
+    anchor: [number, number];
+    hasAttachUI: boolean;
+    /**
+     * 每帧渲染时所用的变换矩阵，缓存下来用于之后的UI绑定渲染
+     */
+    renderMatrix: Matrix;
+    rotatesWithFather: boolean;
     id: number;
     name: string;
     readonly chart: Chart;
@@ -613,6 +579,7 @@ declare enum NoteType {
     flick = 3,
     hold = 2
 }
+type BasicEventName = "moveX" | "moveY" | "rotate" | "alpha" | "speed";
 interface EventLayer {
     moveX?: EventNodeSequence;
     moveY?: EventNodeSequence;
@@ -639,6 +606,7 @@ declare function arrayForIn<T, RT>(arr: T[], expr: (v: T) => RT, guard?: (v: T) 
  * @returns
  */
 declare function dictForIn<T, RT>(obj: Plain<T>, expr: (v: T) => RT, guard?: (v: T) => boolean): Plain<RT>;
+type UIName = "combo" | "combonumber" | "score" | "pause" | "bar" | "name" | "level";
 declare class Chart {
     judgeLines: JudgeLine[];
     bpmList: BPMSegmentData[];
@@ -646,6 +614,9 @@ declare class Chart {
     orphanLines: JudgeLine[];
     name: string;
     level: string;
+    composer: string;
+    charter: string;
+    illustrator: string;
     offset: number;
     templateEasingLib: TemplateEasingLib;
     sequenceMap: Map<string, EventNodeSequence>;
@@ -657,6 +628,14 @@ declare class Chart {
     chartingTime: number;
     rpeChartingTime: number;
     modified: boolean;
+    maxCombo: number;
+    pauseAttach: JudgeLine | null;
+    combonumberAttach: JudgeLine | null;
+    comboAttach: JudgeLine | null;
+    barAttach: JudgeLine | null;
+    scoreAttach: JudgeLine | null;
+    nameAttach: JudgeLine | null;
+    levelAttach: JudgeLine | null;
     constructor();
     getEffectiveBeats(): number;
     static fromRPEJSON(data: ChartDataRPE, duration: number): Chart;
@@ -664,8 +643,13 @@ declare class Chart {
     updateCalculator(): void;
     updateEffectiveBeats(duration: number): void;
     dumpKPA(): Required<ChartDataKPA>;
-    getJudgeLineGroups(): string[];
     createNNNode(time: TimeT): NNNode;
+    createEventNodeSequence(type: EventType, name: string): EventNodeSequence;
+    countMaxCombo(): void;
+    attachUIToLine(ui: UIName, judgeLine: JudgeLine): void;
+    detachUI(ui: UIName): void;
+    queryJudgeLineUI(judgeLine: JudgeLine): UIName[];
+    scanAllTextures(): Set<string>;
 }
 declare class JudgeLineGroup {
     name: string;
@@ -673,6 +657,7 @@ declare class JudgeLineGroup {
     constructor(name: string);
     add(judgeLine: JudgeLine): void;
     remove(judgeLine: JudgeLine): void;
+    isDefault(): boolean;
 }
 /**
  * To compare two arrays
@@ -681,6 +666,18 @@ declare class JudgeLineGroup {
  * @returns
  */
 declare function arrEq<T>(arr1: Array<T>, arr2: Array<T>): boolean;
+declare class EventNodeLike<T extends NodeType> {
+    type: T;
+    /** 后一个事件节点 */
+    next: [EventStartNode, null, ENOrTail][T] | null;
+    /** 前一个事件节点 */
+    previous: [null, EventStartNode, ENOrHead][T] | null;
+    parentSeq: EventNodeSequence;
+    constructor(type: T);
+}
+type ENOrTail = EventNode | EventNodeLike<NodeType.TAIL>;
+type ENOrHead = EventNode | EventNodeLike<NodeType.HEAD>;
+type AnyEN = EventNode | EventNodeLike<NodeType.HEAD> | EventNodeLike<NodeType.TAIL>;
 /**
  * 事件节点基类
  * event node.
@@ -696,15 +693,10 @@ declare function arrEq<T>(arr1: Array<T>, arr2: Array<T>): boolean;
  * 与RPE不同的是，KPA使用两个节点来表示一个事件，而不是一个对象。
  * Different from that in RPE, KPA uses two nodes rather than one object to represent an event.
  */
-declare abstract class EventNode {
+declare abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
     time: TimeT;
     value: number;
     easing: Easing;
-    /** 后一个事件节点 */
-    next: EventNode | Tailer<EventNode>;
-    /** 前一个事件节点 */
-    previous: EventNode | Header<EventNode>;
-    abstract parentSeq: EventNodeSequence;
     constructor(time: TimeT, value: number);
     clone(offset: TimeT): EventStartNode | EventEndNode;
     /**
@@ -723,30 +715,30 @@ declare abstract class EventNode {
      * @returns
      */
     static fromEvent(data: EventDataRPE, templates: TemplateEasingLib): [EventStartNode, EventEndNode];
-    static connect(node1: EventStartNode, node2: EventEndNode | Tailer<EventStartNode>): void;
-    static connect(node1: EventEndNode | Header<EventStartNode>, node2: EventStartNode): void;
-    static removeNodePair(endNode: EventEndNode, startNode: EventStartNode): [EventStartNode | Header<EventStartNode>, EventStartNode | Tailer<EventStartNode>];
-    static insert(node: EventStartNode, tarPrev: EventStartNode): [Header<EventStartNode> | EventStartNode, EventStartNode | Tailer<EventStartNode>];
+    static connect(node1: EventStartNode, node2: EventEndNode | EventNodeLike<NodeType.TAIL>): void;
+    static connect(node1: EventEndNode | EventNodeLike<NodeType.HEAD>, node2: EventStartNode): void;
+    static removeNodePair(endNode: EventEndNode, startNode: EventStartNode): [EventStartNode | EventNodeLike<NodeType.HEAD>, EventStartNode | EventNodeLike<NodeType.TAIL>];
+    static insert(node: EventStartNode, tarPrev: EventStartNode): [EventNodeLike<NodeType.HEAD> | EventStartNode, EventStartNode | EventNodeLike<NodeType.TAIL>];
     /**
      *
      * @param node
      * @returns the next node if it is a tailer, otherwise the next start node
      */
-    static nextStartOfStart(node: EventStartNode): EventStartNode | Tailer<EventStartNode>;
+    static nextStartOfStart(node: EventStartNode): EventStartNode | EventNodeLike<NodeType.TAIL>;
     /**
      *
      * @param node
      * @returns itself if node is a tailer, otherwise the next start node
      */
-    static nextStartOfEnd(node: EventEndNode | Tailer<EventStartNode>): EventStartNode | Tailer<EventStartNode>;
-    static previousStartOfStart(node: EventStartNode): EventStartNode | Header<EventStartNode>;
+    static nextStartOfEnd(node: EventEndNode | EventNodeLike<NodeType.TAIL>): EventStartNode | EventNodeLike<NodeType.TAIL>;
+    static previousStartOfStart(node: EventStartNode): EventStartNode | EventNodeLike<NodeType.HEAD>;
     /**
      * It does not return the start node which form an event with it.
      * @param node
      * @returns
      */
-    static secondPreviousStartOfEnd(node: EventEndNode): EventStartNode | Header<EventStartNode>;
-    static nextStartInJumpArray(node: EventStartNode): EventStartNode | Tailer<EventStartNode>;
+    static secondPreviousStartOfEnd(node: EventEndNode): EventStartNode | EventNodeLike<NodeType.HEAD>;
+    static nextStartInJumpArray(node: EventStartNode): EventStartNode | EventNodeLike<NodeType.TAIL>;
     /**
      * 获得一对背靠背的节点。不适用于第一个StartNode
      * @param node
@@ -771,8 +763,8 @@ declare abstract class EventNode {
     set innerEasing(easing: Exclude<Easing, SegmentedEasing>);
 }
 declare class EventStartNode extends EventNode {
-    next: EventEndNode | Tailer<EventStartNode>;
-    previous: EventEndNode | Header<EventStartNode>;
+    next: EventEndNode | EventNodeLike<NodeType.TAIL>;
+    previous: EventEndNode | EventNodeLike<NodeType.HEAD>;
     /**
      * 对于速度事件，从计算时的时刻到此节点的总积分
      */
@@ -839,10 +831,10 @@ declare class EventNodeSequence {
     /** id follows the format `#${lineid}.${layerid}.${typename}` by default */
     id: string;
     /** has no time or value */
-    head: Header<EventStartNode>;
+    head: EventNodeLike<NodeType.HEAD>;
     /** has no time or value */
-    tail: Tailer<EventStartNode>;
-    jump?: JumpArray<EventStartNode>;
+    tail: EventNodeLike<NodeType.TAIL>;
+    jump?: JumpArray<AnyEN>;
     listLength: number;
     /** 一定是二的幂，避免浮点误差 */
     jumpAverageBeats: number;
@@ -874,7 +866,7 @@ declare class EventNodeSequence {
     }
     **/
     initJump(): void;
-    updateJump(from: TypeOrHeader<EventStartNode>, to: TypeOrTailer<EventStartNode>): void;
+    updateJump(from: ENOrHead, to: ENOrTail): void;
     insert(): void;
     getNodeAt(beats: number, usePrev?: boolean): EventStartNode;
     getValueAt(beats: number, usePrev?: boolean): number;
@@ -889,7 +881,8 @@ declare class BPMStartNode extends EventStartNode {
     spb: number;
     cachedStartIntegral?: number;
     cachedIntegral?: number;
-    next: BPMEndNode | Tailer<BPMStartNode>;
+    next: BPMEndNode | BPMNodeLike<NodeType.TAIL>;
+    previous: BPMEndNode | BPMNodeLike<NodeType.HEAD>;
     constructor(startTime: TimeT, bpm: number);
     getIntegral(beats: number): number;
     /**
@@ -906,6 +899,14 @@ declare class BPMEndNode extends EventEndNode {
     get value(): number;
     set value(val: number);
 }
+interface BPMNodeLike<T extends NodeType> extends EventNodeLike<T> {
+    next: [BPMStartNode, null, BNOrTail][T] | null;
+    previous: [null, BPMStartNode, BNOrHead][T] | null;
+}
+type BPMNode = BPMStartNode | BPMEndNode;
+type AnyBN = (BPMNode | BPMNodeLike<NodeType.TAIL> | BPMNodeLike<NodeType.HEAD>);
+type BNOrTail = BPMNode | BPMNodeLike<NodeType.TAIL>;
+type BNOrHead = BPMNode | BPMNodeLike<NodeType.HEAD>;
 /**
  * 拥有与事件类似的逻辑
  * 每对节点之间代表一个BPM相同的片段
@@ -913,16 +914,16 @@ declare class BPMEndNode extends EventEndNode {
  */
 declare class BPMSequence extends EventNodeSequence {
     duration: number;
-    head: Header<BPMStartNode>;
-    tail: Tailer<BPMStartNode>;
+    head: BPMNodeLike<NodeType.HEAD>;
+    tail: BPMNodeLike<NodeType.TAIL>;
     /** 从拍数访问节点 */
-    jump: JumpArray<EventStartNode>;
+    jump: JumpArray<AnyEN>;
     /** 以秒计时的跳数组，处理从秒访问节点 */
-    secondJump: JumpArray<BPMStartNode>;
+    secondJump: JumpArray<AnyBN>;
     constructor(bpmList: BPMSegmentData[], duration: number);
     initJump(): void;
     updateSecondJump(): void;
-    updateJump(from: TypeOrHeader<EventStartNode>, to: TypeOrTailer<EventStartNode>): void;
+    updateJump(from: ENOrHead, to: ENOrTail): void;
     getNodeBySeconds(seconds: number): BPMStartNode;
     dumpBPM(): BPMSegmentData[];
 }
@@ -985,7 +986,7 @@ declare class Z<K extends HTMLElementTagName> extends EventTarget {
     release(): HTMLElementTagNameMap[K];
     attr(name: string): string;
     attr(name: string, value: string): this;
-    css(name: CSSStyleName, value: string): void;
+    css(name: CSSStyleName, value: string): this;
     append(...$elements: (Z<any> | HTMLElement)[]): this;
     after($e: Z<keyof HTMLElementTagNameMap>): void;
     before($e: Z<keyof HTMLElementTagNameMap>): void;
@@ -1007,6 +1008,7 @@ declare class Z<K extends HTMLElementTagName> extends EventTarget {
     remove(): void;
     static from<K extends keyof HTMLElementTagNameMap>(element: HTMLElementTagNameMap[K]): Z<K>;
     appendMass(callback: () => void): this;
+    isFocused(): boolean;
 }
 declare const $: <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => Z<K>;
 declare class ZButton extends Z<"div"> {
@@ -1017,9 +1019,11 @@ declare class ZButton extends Z<"div"> {
     onClick(callback: (e: Event) => any): this;
 }
 declare class ZSwitch extends ZButton {
+    innerText: string;
+    checkedText?: string;
     get checked(): boolean;
     set checked(val: boolean);
-    constructor(text: string);
+    constructor(innerText: string, checkedText?: string);
     whenClickChange(callback: (checked: boolean, e: Event) => any): this;
 }
 declare class ZValueChangeEvent extends Event {
@@ -1047,10 +1051,10 @@ declare class ZArrowInputBox extends Z<"div"> {
     $up: Z<"div">;
     $down: Z<"div">;
     $input: ZInputBox;
-    constructor();
+    constructor(defaultValue?: number);
     getValue(): number;
     setValue(val: number): this;
-    onChange(callback: (content: number, e: Event) => any): this;
+    whenValueChange(callback: (content: number, e: Event) => any): this;
 }
 /**
  * An input box for mixed fractions, which is convenient for inputting time (beats) in music.
@@ -1082,7 +1086,6 @@ declare class EditableBoxOption extends BoxOption {
     edit(text: string): void;
 }
 declare class ZDropdownOptionBox extends Z<"div"> {
-    callbacks: ((val: string) => any)[];
     readonly options: BoxOption[];
     _value: BoxOption;
     $optionList: Z<"div">;
@@ -1093,17 +1096,16 @@ declare class ZDropdownOptionBox extends Z<"div"> {
     _disabled: boolean;
     get disabled(): boolean;
     set disabled(val: boolean);
-    onChange(callback: (val: string) => any): this;
+    whenValueChange(callback: (val: string) => any): this;
     appendOption(option: BoxOption): this;
     replaceWithOptions(options: BoxOption[]): this;
 }
 declare class ZEditableDropdownOptionBox extends Z<"div"> {
     $optionList: Z<"div">;
-    callbacks: ((val: string) => any)[];
     readonly options: EditableBoxOption[];
     _value: EditableBoxOption;
-    get value(): EditableBoxOption;
-    set value(option: EditableBoxOption);
+    get value(): EditableBoxOption | undefined;
+    set value(option: EditableBoxOption | undefined);
     $value: ZInputBox;
     /**
      *
@@ -1114,14 +1116,30 @@ declare class ZEditableDropdownOptionBox extends Z<"div"> {
     _disabled: boolean;
     get disabled(): boolean;
     set disabled(val: boolean);
-    onChange(callback: (val: string) => any): this;
+    whenValueChange(callback: (val: string) => any): this;
     appendOption(option: EditableBoxOption): this;
     replaceWithOptions(options: EditableBoxOption[]): this;
 }
-declare class ZMemorableBox extends ZEditableDropdownOptionBox {
+declare const THRESHOLD = 100;
+declare class ZSearchBox extends Z<"div"> {
+    count: number;
+    readonly $value: ZInputBox;
+    readonly $options: Z<"div">;
+    lastFocusOutTime: number;
+    constructor(searchable: (s: string) => (string[] | Promise<string[]>), up?: boolean);
+    replaceWithOptions(strings: string[]): void;
+    get value(): string;
+    set value(value: string);
+    whenValueChange(callback: (value: string, e: Event) => void): void;
+    private _disabled;
+    get disabled(): boolean;
+    set disabled(disabled: boolean);
+    wasInputing(): boolean;
+}
+declare class ZMemorableBox extends ZSearchBox {
+    history: string[];
+    maxHistory: number;
     constructor(options: string[], up?: boolean);
-    constructOption(str: string): EditableBoxOption;
-    appendString(str: string): void;
 }
 declare namespace EasingOptions {
     const IN: BoxOption;
@@ -1234,32 +1252,16 @@ declare class ZCollapseController extends Z<"div"> {
     constructor(_folded: boolean, stopsPropagation?: boolean);
     get folded(): boolean;
     set folded(value: boolean);
-    attach($element: Z<HTMLElementTagName>): void;
+    attach(...arr$element: Z<HTMLElementTagName>[]): void;
 }
 interface ListNode<T> {
     next: ListNode<T> | null;
     value: T;
 }
 interface TwoDirectionNode {
-    previous: TwoDirectionNode | Header<TwoDirectionNode>;
-    next: TwoDirectionNode | Tailer<TwoDirectionNode>;
+    previous: TwoDirectionNode;
+    next: TwoDirectionNode;
 }
-interface List<TN extends TwoDirectionNode> {
-    head: Header<TN>;
-    tail: Tailer<TN>;
-}
-interface Header<TN extends TwoDirectionNode> {
-    next: TN;
-    heading: true;
-    parentSeq: List<TN>;
-}
-interface Tailer<TN extends TwoDirectionNode> {
-    previous: TN;
-    tailing: true;
-    parentSeq: List<TN>;
-}
-type TypeOrHeader<T extends TwoDirectionNode> = Header<T> | T;
-type TypeOrTailer<T extends TwoDirectionNode> = Tailer<T> | T;
 declare const connect: <T>(foreNode: ListNode<T>, lateNode: ListNode<T>) => void;
 declare const rgba: (r: number, g: number, b: number, a: number) => string;
 declare const rgb: (r: number, g: number, b: number) => string;
@@ -1321,39 +1323,74 @@ declare function changeAudioTime(audio: HTMLAudioElement, delta: number): void;
  */
 declare function getPercentile(sorted: number[], percentile: number): number;
 declare const isAllDigits: (str: string) => boolean;
+declare const extend: <T>(target: Partial<T>, source: Partial<T>) => void;
+/**
+ * 检查值的类型
+ * @param value
+ * @param type 为字符串时，用typeof检测，为构造函数时，用instanceof检测，为数组时，识别为元组类型。
+ */
+declare const checkType: (value: any, type: string | (string | Function)[] | Function) => any;
+declare const numNoun: (num: number, singular: string, plural?: string) => string;
+declare const numNounWithoutZero: (num: number, singular: string, plural?: string) => string;
+declare const bisearchInsertLeft: (arr: number[], target: number) => number;
+declare const formatTime: (minutes: number, seconds: number) => string;
 declare class NeedsReflowEvent extends Event {
     condition: number;
     constructor(condition: number);
 }
+declare class OperationEvent extends Event {
+    operation: Operation;
+    constructor(t: string, operation: Operation);
+}
+declare class OperationErrorEvent extends OperationEvent {
+    error: Error;
+    constructor(operation: Operation, error: Error);
+}
 declare class OperationList extends EventTarget {
-    parentChart: Chart;
+    chart: Chart;
     operations: Operation[];
     undoneOperations: Operation[];
-    constructor(parentChart: Chart);
+    constructor(chart: Chart);
     undo(): void;
     redo(): void;
     do(operation: Operation): void;
+    processFlags(operation: Operation): void;
     clear(): void;
 }
 declare abstract class Operation {
     ineffective: boolean;
     updatesEditor: boolean;
     reflows: number;
+    needsComboRecount: boolean;
     constructor();
-    abstract do(): void;
-    abstract undo(): void;
+    abstract do(chart: Chart): void;
+    abstract undo(chart: Chart): void;
     rewrite(op: typeof this): boolean;
+    toString(): string;
+    static lazy<C extends new (...args: any[]) => any = typeof this>(this: C, ...args: ConstructorParameters<C>): LazyOperation<C>;
+}
+/**
+ * 懒操作，实例化的时候不记录任何数据，do的时候才执行真正实例化
+ * 防止连续的操作中状态改变导致的错误
+ */
+declare class LazyOperation<C extends new (...args: any[]) => any> extends Operation {
+    operationClass: C;
+    args: ConstructorParameters<C>;
+    operation: InstanceType<C> | null;
+    constructor(operationClass: C, ...args: ConstructorParameters<C>);
+    do(chart: Chart): void;
+    undo(chart: Chart): void;
 }
 declare class ComplexOperation<T extends Operation[]> extends Operation {
     subOperations: T;
     length: number;
     constructor(...sub: T);
-    do(): void;
-    undo(): void;
+    do(chart?: Chart): void;
+    undo(chart?: Chart): void;
 }
-type NoteValueFieldPhiZone = "judgeSize" | "tint" | "tintHitEffects";
-type NoteValueField = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size" | "visibleBeats" | "yOffset" | NoteValueFieldPhiZone;
-declare class NoteValueChangeOperation<T extends NoteValueField> extends Operation {
+type NotePropNamePhiZone = "judgeSize" | "tint" | "tintHitEffects";
+type NotePropName = "speed" | "type" | "positionX" | "startTime" | "endTime" | "alpha" | "size" | "visibleBeats" | "yOffset" | "above" | "isFake" | NotePropNamePhiZone;
+declare class NotePropChangeOperation<T extends NotePropName> extends Operation {
     field: T;
     note: Note;
     previousValue: Note[T];
@@ -1362,12 +1399,13 @@ declare class NoteValueChangeOperation<T extends NoteValueField> extends Operati
     constructor(note: Note, field: T, value: Note[T]);
     do(): void;
     undo(): void;
-    rewrite(operation: NoteValueChangeOperation<T>): boolean;
+    rewrite(operation: NotePropChangeOperation<T>): boolean;
 }
 declare class NoteRemoveOperation extends Operation {
     noteNode: NoteNode;
     note: Note;
     isHold: boolean;
+    needsComboRecount: boolean;
     constructor(note: Note);
     do(): void;
     undo(): void;
@@ -1389,34 +1427,40 @@ declare class NoteAddOperation extends Operation {
     note: Note;
     isHold: boolean;
     updatesEditor: boolean;
+    needsComboRecount: boolean;
     constructor(note: Note, node: NoteNode);
     do(): void;
     undo(): void;
 }
 declare class MultiNoteAddOperation extends ComplexOperation<NoteAddOperation[]> {
     updatesEditor: boolean;
+    needsComboRecount: boolean;
     constructor(notes: Set<Note> | Note[], judgeLine: JudgeLine);
 }
-declare class NoteTimeChangeOperation extends ComplexOperation<[NoteRemoveOperation, NoteValueChangeOperation<"startTime">, NoteAddOperation]> {
+declare class NoteTimeChangeOperation extends ComplexOperation<[
+    NoteRemoveOperation,
+    NotePropChangeOperation<"startTime">,
+    NoteAddOperation
+] | [NoteRemoveOperation, NotePropChangeOperation<"startTime">, NoteAddOperation, NotePropChangeOperation<"endTime">]> {
     note: Note;
-    updatesEditor: boolean;
     constructor(note: Note, noteNode: NoteNode);
     rewrite(operation: NoteTimeChangeOperation): boolean;
 }
-declare class HoldEndTimeChangeOperation extends NoteValueChangeOperation<"endTime"> {
+declare class HoldEndTimeChangeOperation extends NotePropChangeOperation<"endTime"> {
+    needsComboRecount: boolean;
     constructor(note: Note, value: TimeT);
     do(): void;
     undo(): void;
     rewrite(operation: HoldEndTimeChangeOperation): boolean;
 }
-declare class NoteSpeedChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
+declare class NoteSpeedChangeOperation extends ComplexOperation<[NotePropChangeOperation<"speed">, NoteRemoveOperation, NoteAddOperation]> {
     updatesEditor: boolean;
     originalTree: NNList;
     judgeLine: JudgeLine;
     targetTree: NNList;
     constructor(note: Note, value: number, line: JudgeLine);
 }
-declare class NoteYOffsetChangeOperation extends ComplexOperation<[NoteValueChangeOperation<"yOffset">, NoteRemoveOperation, NoteAddOperation]> {
+declare class NoteYOffsetChangeOperation extends ComplexOperation<[NotePropChangeOperation<"yOffset">, NoteRemoveOperation, NoteAddOperation]> {
     updatesEditor: boolean;
     originalTree: NNList;
     judgeLine: JudgeLine;
@@ -1424,7 +1468,6 @@ declare class NoteYOffsetChangeOperation extends ComplexOperation<[NoteValueChan
     constructor(note: Note, value: number, line: JudgeLine);
 }
 declare class NoteTypeChangeOperation extends ComplexOperation</*[NoteValueChangeOperation<"type">, NoteInsertOperation]*/ any> {
-    updatesEditor: boolean;
     constructor(note: Note, value: number);
 }
 declare class NoteTreeChangeOperation extends NoteAddOperation {
@@ -1483,7 +1526,7 @@ declare class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsert
     nodes: EventStartNode[];
     constructor(nodes: EventStartNode[], seq: EventNodeSequence);
 }
-declare class MultiNodeDeleteOperation extends ComplexOperation<EventNodePairRemoveOperation[]> {
+declare class MultiNodeDeleteOperation extends ComplexOperation<LazyOperation<typeof EventNodePairRemoveOperation>[]> {
     updatesEditor: boolean;
     constructor(nodes: EventStartNode[]);
 }
@@ -1568,6 +1611,17 @@ declare class JudgeLineRenameOperation extends Operation {
     do(): void;
     undo(): void;
 }
+type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture";
+declare class JudgeLinePropChangeOperation<T extends JudgeLinePropName> extends Operation {
+    judgeLine: JudgeLine;
+    field: T;
+    value: JudgeLine[T];
+    updatesEditor: boolean;
+    originalValue: JudgeLine[T];
+    constructor(judgeLine: JudgeLine, field: T, value: JudgeLine[T]);
+    do(): void;
+    undo(): void;
+}
 declare class JudgeLineRegroupOperation extends Operation {
     judgeLine: JudgeLine;
     value: JudgeLineGroup;
@@ -1591,6 +1645,62 @@ declare class JudgeLineDeleteOperation extends Operation {
     judgeLine: JudgeLine;
     readonly originalGroup: JudgeLineGroup;
     constructor(chart: Chart, judgeLine: JudgeLine);
+    do(): void;
+    undo(): void;
+}
+declare class JudgeLineENSChangeOperation extends Operation {
+    judgeLine: JudgeLine;
+    layerId: number;
+    typeStr: BasicEventName;
+    value: EventNodeSequence;
+    originalValue: EventNodeSequence;
+    constructor(judgeLine: JudgeLine, layerId: number, typeStr: BasicEventName, value: EventNodeSequence);
+    do(): void;
+    undo(): void;
+}
+declare class EventNodeSequenceRenameOperation extends Operation {
+    sequence: EventNodeSequence;
+    newName: string;
+    updatesEditor: boolean;
+    originalName: string;
+    constructor(sequence: EventNodeSequence, newName: string);
+    do(chart: Chart): void;
+    undo(chart: Chart): void;
+}
+declare class AttachUIOperation extends Operation {
+    chart: Chart;
+    judgeLine: JudgeLine;
+    ui: UIName;
+    updatesEditor: boolean;
+    constructor(chart: Chart, judgeLine: JudgeLine, ui: UIName);
+    do(): void;
+    undo(): void;
+}
+declare class DetachUIOperation extends Operation {
+    chart: Chart;
+    ui: UIName;
+    updatesEditor: boolean;
+    judgeLine: JudgeLine;
+    constructor(chart: Chart, ui: UIName);
+    do(): void;
+    undo(): void;
+}
+declare class DetachJudgeLineOperation extends Operation {
+    chart: Chart;
+    judgeLine: JudgeLine;
+    updatesEditor: boolean;
+    uinames: UIName[];
+    constructor(chart: Chart, judgeLine: JudgeLine);
+    do(): void;
+    undo(): void;
+}
+type ChartPropName = "name" | "level" | "composer" | "illustrator" | "charter" | "offset";
+declare class ChartPropChangeOperation<T extends ChartPropName> extends Operation {
+    chart: Chart;
+    field: T;
+    value: Chart[T];
+    originalValue: Chart[T];
+    constructor(chart: Chart, field: T, value: Chart[T]);
     do(): void;
     undo(): void;
 }
@@ -1638,18 +1748,15 @@ declare abstract class SideEntityEditor<T extends object> extends SideEditor {
     constructor();
 }
 declare class NoteEditor extends SideEntityEditor<Note> {
-    aboveOption: BoxOption;
-    belowOption: BoxOption;
-    realOption: BoxOption;
-    fakeOption: BoxOption;
     noteTypeOptions: BoxOption[];
+    $warning: Z<"span">;
     $time: ZFractionInput;
     $endTime: ZFractionInput;
     $type: ZDropdownOptionBox;
     $position: ZInputBox;
-    $dir: ZDropdownOptionBox;
+    $dir: ZSwitch;
     $speed: ZInputBox;
-    $fake: ZDropdownOptionBox;
+    $real: ZSwitch;
     $alpha: ZInputBox;
     $size: ZInputBox;
     $yOffset: ZInputBox;
@@ -1657,23 +1764,54 @@ declare class NoteEditor extends SideEntityEditor<Note> {
     $tint: ZInputBox;
     $tintHitEffect: ZInputBox;
     $judgeSize: ZInputBox;
+    $setAsDefault: ZButton;
     $delete: ZButton;
     constructor();
     update(): void;
 }
+type CanRepresentTime = TimeT | number | string;
+declare const processTimeArg: (time: CanRepresentTime) => number;
+/**
+ * 多音符编辑的辅助函数
+ * @param note 原封不动传入音符
+ * @param easingFunc 缓动函数（ease开头）
+ * @param start 开始点
+ * @param end 结束点
+ * @returns
+ */
+declare const fillCurve: (note: Note | EventNode, easingFunc: ((t: number) => number) | Easing, start: [CanRepresentTime, number], end: [CanRepresentTime, number]) => number;
+declare const snippets: {
+    blank: string;
+    "fillCurve (with comments)": string;
+    fillCurve: string;
+    help: string;
+};
 declare class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
-    $reverse: ZButton;
-    $delete: ZButton;
+    readonly $reverse: ZButton;
+    readonly $delete: ZButton;
+    readonly $propOptionBox: ZDropdownOptionBox;
+    readonly $code: ZTextArea;
+    readonly $execute: ZButton;
+    readonly $snippets: ZDropdownOptionBox;
+    readonly $fillDensityInput: ZFractionInput;
+    readonly $fill: ZButton;
+    readonly $fillWarning: Z<"span">;
     constructor();
     update(): void;
 }
 declare class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
-    $reverse: ZButton;
-    $delete: ZButton;
+    readonly $reverse: ZButton;
+    readonly $delete: ZButton;
+    readonly $startEndOptionBox: ZDropdownOptionBox;
+    readonly $propOptionBox: ZDropdownOptionBox;
+    readonly $code: ZTextArea;
+    readonly $execute: ZButton;
+    readonly $snippets: ZDropdownOptionBox;
     constructor();
     update(): void;
 }
 declare class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
+    $warning: Z<"span">;
     $time: ZFractionInput;
     $value: ZInputBox;
     $normalOuter: Z<"div">;
@@ -1695,20 +1833,43 @@ declare class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode
     setParametricEasing(expression: string): void;
     update(): void;
 }
+declare function searchTexture(prefix: string): Promise<string[]>;
 declare class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     readonly $father: ZInputBox;
+    readonly $texture: ZSearchBox;
+    readonly $anchor: ZInputBox;
     readonly $group: ZDropdownOptionBox;
     readonly $newGroup: ZInputBox;
     readonly $createGroup: ZButton;
     readonly $createLine: ZButton;
+    readonly $attachUI: ZCollapseController;
+    readonly $rotatesWithFather: ZSwitch;
     readonly $del: ZButton;
+    readonly $setAsBindNote: ZButton;
+    readonly $eventLayerIdInput: ZArrowInputBox;
+    readonly $eventType: ZDropdownOptionBox;
+    readonly $eventNodeSequence: Z<"div">;
+    readonly $newEventSeqName: ZSearchBox;
+    readonly map$uiAttach: Record<UIName, ZSwitch>;
     constructor();
     update(): void;
     updateGroups(groups: JudgeLineGroup[]): void;
+    updateAttach(): void;
 }
 declare class UserScriptEditor extends SideEditor {
     $script: ZTextArea;
     $runBtn: ZButton;
+    constructor();
+    update(): void;
+}
+declare class ChartInfoEditor extends SideEditor {
+    $chartTitle: ZInputBox;
+    $level: ZInputBox;
+    $composer: ZInputBox;
+    $charter: ZInputBox;
+    $illustrator: ZInputBox;
+    $chartingTime: Z<"span">;
+    $rpeChartingTime: Z<"span">;
     constructor();
     update(): void;
 }
@@ -1731,8 +1892,14 @@ type PositionEntity<T> = {
 declare const pointIsInRect: (x: number, y: number, rectTop: number, rectLeft: number, width: number, height: number) => boolean;
 declare class SelectionManager<T> {
     positions: PositionEntity<T>[];
+    private basePriority;
     constructor();
     refresh(): void;
+    /**
+     *
+     * @param entity 两种形态，一种通过左上角和宽高定义，需要选定区罩住整个矩形，另一种通过中心点、宽高和角度定义，只要罩住中心点
+     * @returns
+     */
     add(entity: PositionEntity<T>): {
         annotate: (context: CanvasRenderingContext2D, canvasX: number, canvasY: number) => void;
     };
@@ -1748,7 +1915,9 @@ declare class SelectionManager<T> {
      * @returns
      */
     selectScope(top: number, left: number, bottom: number, right: number): PositionEntity<T>[];
+    setBasePriority(priority: number): void;
 }
+declare const SCOPING_COLOR = "#FAE";
 declare const eventTypeMap: {
     valueGridSpan: number;
     valueRange: [number, number];
@@ -1884,28 +2053,16 @@ declare class EventCurveEditor {
     initContext(): void;
     drawCoordination(beats: number): void;
     draw(beats?: number): void;
+    drawSequence(sequence: EventNodeSequence, valueArray: number[], beats: number, startBeats: number, endBeats: number, matrix: Matrix): void;
     autoRangeEnabled: boolean;
     adjust(values: number[]): void;
-    changeTarget(line: JudgeLine, index: number): void;
+    changeTarget(line: JudgeLine, index: string): void;
     paste(): void;
     copy(): void;
 }
 declare const DRAWS_NN = true;
 declare const COLOR_1 = "#66ccff";
 declare const COLOR_2 = "#ffcc66";
-declare const HEAD = 1;
-declare const BODY = 2;
-declare const TAIL = 3;
-/**
- * 用于Note编辑器记录其中的音符贴图位置
- */
-type NotePosition = {
-    note: Note;
-    x: number;
-    y: number;
-    height: number;
-    type: 1 | 2 | 3;
-};
 declare enum NotesEditorState {
     select = 0,
     selecting = 1,
@@ -1931,7 +2088,7 @@ declare class NotesEditor extends Z<"div"> {
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
     _target: JudgeLine;
-    targetTree?: NNList;
+    targetNNList?: NNList;
     positionBasis: number;
     positionRatio: number;
     positionGridSpan: number;
@@ -1953,21 +2110,34 @@ declare class NotesEditor extends Z<"div"> {
     selectState: SelectState;
     wasEditing: boolean;
     pointedPositionX: number;
-    pointedBeats: number;
-    beatFraction: number;
     noteType: NoteType;
     noteAbove: boolean;
+    attachableTimes: number[];
+    timeMap: Map<number, TimeT>;
+    pointedTime: TimeT;
+    showsNNNListAttachable: boolean;
     drawn: boolean;
     lastBeats: number;
-    $optionBox: ZEditableDropdownOptionBox;
-    $typeOption: ZDropdownOptionBox;
-    $noteAboveOption: ZDropdownOptionBox;
-    $selectOption: ZDropdownOptionBox;
-    $copyButton: ZButton;
-    $pasteButton: ZButton;
-    $editButton: ZSwitch;
-    allOption: EditableBoxOption;
+    readonly allOption: EditableBoxOption;
+    readonly $listOption: ZEditableDropdownOptionBox;
+    readonly $typeOption: ZDropdownOptionBox;
+    readonly $noteAboveSwitch: ZSwitch;
+    readonly $selectOption: ZDropdownOptionBox;
+    readonly $copyButton: ZButton;
+    readonly $pasteButton: ZButton;
+    readonly $editButton: ZSwitch;
+    readonly $timeSpanInput: ZInputBox;
+    readonly $xLineCountInput: ZArrowInputBox;
+    readonly $showsNNNListAttachable: ZSwitch;
     mouseIn: boolean;
+    defaultConfig: {
+        alpha: number;
+        isFake: number;
+        size: number;
+        speed: number;
+        absoluteYOffset: number;
+        visibleBeats: number;
+    };
     get target(): JudgeLine;
     set target(line: JudgeLine);
     constructor(editor: Editor);
@@ -1983,6 +2153,7 @@ declare class NotesEditor extends Z<"div"> {
     updateMatrix(): void;
     init(width: number, height: number): void;
     drawCoordination(beats: number): void;
+    lookList(nnnList: NNNList | NNList, startBeats: number, stopBeats: number, beats: number): void;
     draw(beats?: number): void;
     drawNNList(tree: NNList, beats: number): void;
     drawNote(beats: number, note: Note, isTruck: boolean, nth: number): void;
@@ -2014,7 +2185,7 @@ declare class JudgeLinesEditor extends Z<"div"> {
     private treeLayout;
     private addIndentedLineEditor;
     private groupedLayout;
-    registerEditor(editor: JudgeLineEditor): void;
+    private registerEditor;
     update(): void;
     reflow(type?: JudgeLinesEditorLayoutType): void;
 }
@@ -2072,6 +2243,8 @@ declare class Editor extends EventTarget {
     readonly $switchButton: ZButton;
     readonly $judgeLinesEditorLayoutSelector: ZDropdownOptionBox;
     readonly $tipsLabel: Z<"div">;
+    readonly $showsLineID: ZSwitch;
+    readonly $showsUI: ZSwitch;
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
     noteEditor: NoteEditor;
@@ -2080,8 +2253,10 @@ declare class Editor extends EventTarget {
     userScriptEditor: UserScriptEditor;
     multiNoteEditor: MultiNoteEditor;
     multiNodeEditor: MultiNodeEditor;
-    renderingTime: number;
-    lastRenderingTime: number;
+    chartInfoEditor: ChartInfoEditor;
+    lastMs: number;
+    framesSinceLastUpdate: number;
+    frameRate: number;
     $saveDialog: SaveDialog;
     constructor();
     shownSideEditor: SideEditor;
@@ -2109,7 +2284,7 @@ declare class RPEChartCompiler {
     sequenceMap: Map<EventNodeSequence, EventNodeSequence>;
     constructor(chart: Chart);
     compileChart(): ChartDataRPE;
-    dumpJudgeLine(judgeLine: JudgeLine): JudgeLineDataRPE;
+    compileJudgeLine(judgeLine: JudgeLine): JudgeLineDataRPE;
     dumpEventNodeSequence(sequence: EventNodeSequence): EventDataRPE[];
     compileNNLists(nnLists: NNList[], hnLists: HNList[]): NoteDataRPE[];
     /**
@@ -2194,6 +2369,8 @@ declare const LINE_COLOR = "#CCCC77";
 declare const HIT_EFFECT_SIZE = 200;
 declare const HALF_HIT: number;
 declare const RENDER_SCOPE = 900;
+declare const COMBO_TEXT = "KIPPHI";
+declare const BASE_LINE_LENGTH = 4050;
 declare const getVector: (theta: number) => [Vector, Vector];
 type HEX = number;
 declare class Player {
@@ -2209,11 +2386,17 @@ declare class Player {
     aspect: number;
     noteSize: number;
     noteHeight: number;
-    soundQueue: SoundEntity[];
     lastBeats: number;
     tintNotesMapping: Map<HEX, OffscreenCanvas | ImageBitmap>;
     tintEffectMapping: Map<HEX, OffscreenCanvas | ImageBitmap>;
     greenLine: number;
+    currentCombo: number;
+    lastUncountedNNN: NNNOrTail | null;
+    lastUncountedTailNNN: NNNOrTail | null;
+    lastCountedBeats: number;
+    showsInfo: boolean;
+    showsLineID: boolean;
+    textureMapping: Map<string, ImageBitmap>;
     constructor(canvas: HTMLCanvasElement);
     get time(): number;
     get beats(): number;
@@ -2221,9 +2404,11 @@ declare class Player {
     renderDropScreen(): void;
     renderGreyScreen(): void;
     initGreyScreen(): void;
+    computeCombo(): void;
     render(): void;
     renderLine(matrix: Matrix, judgeLine: JudgeLine): void;
-    renderSounds(tree: NNList, beats: number, soundQueue: SoundEntity[], timeCalculator: TimeCalculator): void;
+    lastUnplayedNNNode: NNNode | NNNodeLike<NodeType.TAIL>;
+    playSounds(): void;
     renderHitEffects(matrix: Matrix, tree: NNList, startBeats: number, endBeats: number, timeCalculator: TimeCalculator): void;
     /**
      *
@@ -2243,6 +2428,7 @@ declare class Player {
     private update;
     play(): void;
     pause(): void;
+    receive(chart: Chart): void;
 }
 declare class ZProgressBar extends Z<"progress"> {
     target: HTMLAudioElement;
@@ -2275,6 +2461,8 @@ declare class ServerApi extends EventTarget {
     autosave(chart: ChartDataKPA): Promise<boolean>;
     fetchVersion(versionId: string): Promise<ChartDataKPA>;
     resolvePath(path: string): string;
+    fetchTexture(name: string): Promise<ImageBitmap>;
+    queryTextures(): Promise<string[]>;
 }
 interface SettingEntries {
     lineColor: [number, number, number];

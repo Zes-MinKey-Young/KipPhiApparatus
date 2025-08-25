@@ -7,7 +7,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-const VERSION = "1.6.1";
+const VERSION = 170;
+const VERSION_STRING = "1.7.0";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -441,7 +442,6 @@ rpeEasingArray.forEach((easing, index) => {
 const MIN_LENGTH = 128;
 const MAX_LENGTH = 1024;
 const MINOR_PARTS = 16;
-const breakpoint = () => { debugger; };
 class JumpArray {
     /**
      *
@@ -506,7 +506,7 @@ class JumpArray {
     updateRange(firstNode, lastNode) {
         const { endNextFn, effectiveBeats, resolveLastNode } = this;
         lastNode = resolveLastNode(lastNode);
-        console.log(firstNode, lastNode);
+        // console.log(firstNode, lastNode)
         /**
          *
          * @param startTime
@@ -595,7 +595,6 @@ class JumpArray {
         const jumpAverageBeats = this.averageBeats;
         const jumpPos = Math.floor(beats / jumpAverageBeats);
         const rest = beats - jumpPos * jumpAverageBeats;
-        const nextFn = this.nextFn;
         for (let i = jumpPos; i >= 0; i--) {
             let canBeNodeOrArray = this.array[i];
             if (Array.isArray(canBeNodeOrArray)) {
@@ -614,7 +613,7 @@ class JumpArray {
      *
      * @param beats 拍数
      * @ param usePrev 可选，若设为true，则在取到事件头部时会返回前一个事件（即视为左开右闭）
-     * @returns 时间索引链表的节点
+     * @returns 时间索引链表的节点，一般不是head
      */
     getNodeAt(beats) {
         if (beats < 0) {
@@ -631,7 +630,7 @@ class JumpArray {
         let node = Array.isArray(canBeNodeOrArray)
             ? canBeNodeOrArray[Math.floor(rest / (jumpAverageBeats / MINOR_PARTS))]
             : canBeNodeOrArray;
-        if ("tailing" in node) {
+        if (node.type === 1 /* NodeType.TAIL */) {
             return node;
         }
         // console.log(this, node, jumpPos, beats)
@@ -643,28 +642,11 @@ class JumpArray {
         // console.log(this)
         while (next = nextFn(node, beats)) {
             node = next;
-            if ("tailing" in node) {
+            if (node.type === 1 /* NodeType.TAIL */) {
                 break;
             }
         }
         return node;
-    }
-}
-/**
- * @deprecated
- */
-class Pointer {
-    constructor() {
-        this.node = null;
-        this.beats = null;
-        this.before = 0;
-    }
-    pointTo(node, beats, counts = false) {
-        if (!node) {
-            debugger;
-        }
-        this.node = node;
-        this.beats = beats;
     }
 }
 /**
@@ -675,8 +657,8 @@ const node2string = (node) => {
     if (!node) {
         return "" + node;
     }
-    if ("heading" in node || "tailing" in node) {
-        return "heading" in node ? "H" : "tailing" in node ? "T" : "???";
+    if (node.type === 0 /* NodeType.HEAD */ || node.type === 1 /* NodeType.TAIL */) {
+        return node.type === 0 /* NodeType.HEAD */ ? "H" : node.type === 1 /* NodeType.TAIL */ ? "T" : "???";
     }
     if (!node.notes) {
         return "EventNode";
@@ -688,6 +670,23 @@ const rgb2hex = (rgb) => {
 };
 const hex2rgb = (hex) => {
     return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF];
+};
+const notePropTypes = {
+    above: "boolean",
+    alpha: "number",
+    endTime: ["number", "number", "number"],
+    isFake: "boolean",
+    positionX: "number",
+    size: "number",
+    speed: "number",
+    startTime: ["number", "number", "number"],
+    type: "number",
+    visibleTime: "number",
+    visibleBeats: "number",
+    yOffset: "number",
+    tint: ["number", "number", "number"],
+    tintHitEffects: ["number", "number", "number"],
+    judgeSize: "number"
 };
 /**
  * 音符
@@ -712,12 +711,12 @@ class Note {
         var _a, _b, _c, _d, _e;
         this.above = data.above === 1;
         this.alpha = (_a = data.alpha) !== null && _a !== void 0 ? _a : 255;
-        this.endTime = data.type === NoteType.hold ? data.endTime : data.startTime;
+        this.endTime = data.type === NoteType.hold ? TimeCalculator.validateIp(data.endTime) : TimeCalculator.validateIp([...data.startTime]);
         this.isFake = Boolean(data.isFake);
         this.positionX = data.positionX;
         this.size = (_b = data.size) !== null && _b !== void 0 ? _b : 1.0;
         this.speed = (_c = data.speed) !== null && _c !== void 0 ? _c : 1.0;
-        this.startTime = data.startTime;
+        this.startTime = TimeCalculator.validateIp(data.startTime);
         this.type = data.type;
         this.visibleTime = data.visibleTime;
         // @ts-expect-error
@@ -821,7 +820,7 @@ class Note {
         };
     }
 }
-class NoteNode {
+class NoteNodeLike {
     get previous() {
         if (!this._previous)
             return null;
@@ -834,8 +833,15 @@ class NoteNode {
         }
         this._previous = new WeakRef(val);
     }
+    constructor(type) {
+        this._previous = null;
+        this.type = type;
+    }
+}
+class NoteNode extends NoteNodeLike {
     constructor(time) {
-        this.startTime = [...time];
+        super(2 /* NodeType.MIDDLE */);
+        this.startTime = TimeCalculator.validateIp([...time]);
         this.notes = [];
         this.id = NoteNode.count++;
     }
@@ -913,11 +919,9 @@ class NoteNode {
     }
     static connect(note1, note2) {
         if (note1) {
-            // @ts-expect-error
             note1.next = note2;
         }
         if (note2) {
-            // @ts-expect-error
             note2.previous = note1;
         }
         if (note1 && note2) {
@@ -940,24 +944,13 @@ class NNList {
     constructor(speed, medianYOffset = 0, effectiveBeats) {
         this.speed = speed;
         this.medianYOffset = medianYOffset;
-        this.head = {
-            heading: true,
-            next: null,
-            parentSeq: this
-        };
+        this.head = new NoteNodeLike(0 /* NodeType.HEAD */);
+        this.head.parentSeq = this;
         this.currentPoint = this.head;
         // this.currentBranchPoint = <NoteNode>{startTime: [-1, 0, 1]}
-        this.tail = {
-            tailing: true,
-            previous: null,
-            parentSeq: this
-        };
+        this.tail = new NoteNodeLike(1 /* NodeType.TAIL */);
+        this.tail.parentSeq = this;
         this.timesWithNotes = 0;
-        /*
-        this.renderPointer = new Pointer();
-        this.hitPointer = new Pointer();
-        this.editorPointer = new Pointer()
-        */
         this.effectiveBeats = effectiveBeats;
     }
     /** 此方法永远用于最新KPAJSON */
@@ -979,35 +972,26 @@ class NNList {
     initJump() {
         const originalListLength = this.timesWithNotes;
         if (!this.effectiveBeats) {
-            this.effectiveBeats = TimeCalculator.toBeats(this.tail.previous.endTime);
+            const prev = this.tail.previous;
+            if (prev.type === 0 /* NodeType.HEAD */) {
+                return;
+            }
+            this.effectiveBeats = TimeCalculator.toBeats(prev.endTime);
         }
         const effectiveBeats = this.effectiveBeats;
         this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
-            if ("tailing" in node) {
+            if (node.type === 1 /* NodeType.TAIL */) {
                 return [null, null];
             }
             const nextNode = node.next;
-            const startTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.startTime);
+            const startTime = (node.type === 0 /* NodeType.HEAD */) ? 0 : TimeCalculator.toBeats(node.startTime);
             return [startTime, nextNode];
-        }, (note, beats) => {
+        }, 
+        // @ts-ignore
+        (note, beats) => {
             return TimeCalculator.toBeats(note.startTime) >= beats ? false : note.next; // getNodeAt有guard
-        }
-        /*,
-        (note: Note) => {
-            const prev = note.previous;
-            return "heading" in prev ? note : prev
-        })*/ );
+        });
     }
-    initPointer(pointer) {
-        pointer.pointTo(this.head.next, 0);
-    }
-    //initPointers() {
-    /*
-    this.initPointer(this.hitPointer);
-    this.initPointer(this.renderPointer)
-    this.initPointer(this.editorPointer);
-    */
-    //}
     /**
      *
      * @param beats 目标位置
@@ -1015,22 +999,7 @@ class NNList {
      * @param pointer 指针，实现查询位置缓存
      * @returns
      */
-    getNodeAt(beats, beforeEnd = false, pointer) {
-        /*
-        if (pointer) {
-            if (beats !== pointer.beats) {
-                if (beforeEnd) {
-                    this.movePointerBeforeEnd(pointer, beats)
-                } else {
-                    this.movePointerBeforeStart(pointer, beats)
-                }
-            }
-            if (!pointer.node) {
-                debugger
-            }
-            return pointer.node
-        }
-        */
+    getNodeAt(beats, beforeEnd = false) {
         return this.jump.getNodeAt(beats);
     }
     /**
@@ -1040,9 +1009,13 @@ class NNList {
      */
     getNodeOf(time) {
         var _a;
-        const node = this.getNodeAt(TimeCalculator.toBeats(time), false)
+        let node = this.getNodeAt(TimeCalculator.toBeats(time), false)
             .previous;
-        const isEqual = !("heading" in node) && TimeCalculator.eq(node.startTime, time);
+        let isEqual = node.type !== 0 /* NodeType.HEAD */ && TimeCalculator.eq(node.startTime, time);
+        if (node.next.type !== 1 /* NodeType.TAIL */ && TimeCalculator.eq(node.next.startTime, time)) {
+            isEqual = true;
+            node = node.next;
+        }
         if (!isEqual) {
             const newNode = new NoteNode(time);
             const next = node.next;
@@ -1059,133 +1032,16 @@ class NNList {
             return node;
         }
     }
-    /**
-     * @deprecated
-     * @param pointer
-     * @param beats
-     * @param jump
-     * @param useEnd
-     * @returns
-     * /
-    movePointerWithGivenJumpArray(pointer: Pointer<NoteNode>, beats: number, jump: JumpArray<NoteNode>, useEnd: boolean=false): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        const distance = NoteTree.distanceFromPointer(beats, pointer, useEnd);
-        const original = pointer.node;
-        beats >= 4 && console.log(pointer, beats, distance, jump, this)
-        if (distance === 0) {
-            pointer.beats = beats;
-            return [original, original, 0]
-        }
-        const delta = beats - pointer.beats;
-        if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
-            const end = jump.getNodeAt(beats);
-            console.log("end, beats", end, beats)
-            if (!end) {
-                debugger;
-            }
-            pointer.pointTo(end, beats)
-            return [original, end, distance]
-        }
-        let end: TypeOrTailer<NoteNode>;
-        if (distance === 1) {
-            end = (<NoteNode>original).next // 多谢了个let，特此留念
-        } else if (distance === -1) {
-            end = "heading" in original.previous ? original : original.previous;
-        }
-        if (!end) {
-            debugger;
-        }
-        pointer.pointTo(end, beats)
-        return [original, end, distance]
-    }
-    // */
-    /**
-     * @deprecated
-     * /
-    movePointerBeforeStart(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump)
-    }
-    /**
-     * @deprecated
-     * /
-    movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true)
-    }
-    // */
-    /**
-     * @deprecated
-     */
-    static distanceFromPointer(beats, pointer, useEnd = false) {
-        const note = pointer.node;
-        if (!note) {
-            debugger;
-        }
-        if ("tailing" in note) {
-            if ("heading" in note.previous) {
-                return 0;
-            }
-            return TimeCalculator.toBeats(useEnd ? note.previous.endTime : note.previous.startTime) < beats ? -1 : 0;
-        }
-        const previous = note.previous;
-        if (!previous)
-            debugger;
-        const previousBeats = "heading" in previous ? -Infinity : TimeCalculator.toBeats(useEnd ? previous.endTime : previous.startTime);
-        const thisBeats = TimeCalculator.toBeats(useEnd ? note.endTime : note.startTime);
-        console.log("tpb", thisBeats, previousBeats, beats);
-        if (beats < previousBeats) {
-            return -1;
-        }
-        else if (beats > thisBeats) {
-            return 1;
-        }
-        return 0;
-    }
-    /*
-    insertNoteJumpUpdater(note: Note) {
-        const {previous, next} = note
-        return () => {
-            this.jump.updateRange(previous, next)
-        }
-    }
-    */
-    /**
-     * To find the note's previous(Sibling) if it is to be inserted into the tree
-     * @param note
-     */
-    /*
-    findPrev(note: Note): TypeOrHeader<NoteNode> {
-        const beats = TimeCalculator.toBeats(note.startTime)
-        const destNote = this.getNoteAt(beats, false, this.editorPointer)
-        if ("tailing" in destNote) {
-            return destNote.previous
-        }
-        if (TimeCalculator.eq(destNote.startTime, note.startTime)) {
-            if (!(this instanceof HoldTree)) {
-                return destNote
-            }
-            let cur = destNote
-            while (1) {
-                const next = destNote.nextSibling
-                if (!next) {
-                    break
-                }
-                if (TimeCalculator.lt(note.endTime, next.endTime)) {
-                    return cur
-                }
-                cur = next
-            }
-        }
-        return destNote.previous
-    }
-    */
     dumpKPA() {
         const nodes = [];
         let node = this.head.next;
-        while (!("tailing" in node)) {
+        while (node.type !== 1 /* NodeType.TAIL */) {
             nodes.push(node.dump());
             node = node.next;
         }
         return {
             speed: this.speed,
+            medianYOffset: this.medianYOffset,
             noteNodes: nodes
         };
     }
@@ -1204,28 +1060,20 @@ class HNList extends NNList {
         const originalListLength = this.timesWithNotes;
         const effectiveBeats = this.effectiveBeats;
         this.holdTailJump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
-            if ("tailing" in node) {
+            if (node.type === 1 /* NodeType.TAIL */) {
                 return [null, null];
             }
             if (!node)
                 debugger;
             const nextNode = node.next;
-            const endTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.endTime);
+            const endTime = node.type === 0 /* NodeType.HEAD */ ? 0 : TimeCalculator.toBeats(node.endTime);
             return [endTime, nextNode];
-        }, (node, beats) => {
+        }, 
+        // @ts-ignore
+        (node, beats) => {
             return TimeCalculator.toBeats(node.endTime) >= beats ? false : node.next; // getNodeAt有guard
         });
     }
-    /**
-     *
-     * @param pointer
-     * @param beats
-     * @returns
-     * /
-    movePointerBeforeEnd(pointer: Pointer<NoteNode>, beats: number): [TypeOrTailer<NoteNode>, TypeOrTailer<NoteNode>, number] {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.holdTailJump, true);
-    }
-    //*/
     getNodeAt(beats, beforeEnd = false) {
         return beforeEnd ? this.holdTailJump.getNodeAt(beats) : this.jump.getNodeAt(beats);
     }
@@ -1238,11 +1086,23 @@ class HNList extends NNList {
         };
     }
 }
-class NNNode {
+class NNNodeLike {
+    constructor(type) {
+        this.type = type;
+        if (type === 0 /* NodeType.HEAD */) {
+            this.startTime = [0, 0, 1];
+        }
+        else if (type === 1 /* NodeType.TAIL */) {
+            this.startTime = [Infinity, 0, 1];
+        }
+    }
+}
+class NNNode extends NNNodeLike {
     constructor(time) {
+        super(2 /* NodeType.MIDDLE */);
         this.noteNodes = [];
         this.holdNodes = [];
-        this.startTime = time;
+        this.startTime = TimeCalculator.validateIp([...time]);
     }
     get endTime() {
         let latest = this.startTime;
@@ -1263,6 +1123,18 @@ class NNNode {
         }
         node.totalNode = this;
     }
+    static connect(note1, note2) {
+        if (note1) {
+            note1.next = note2;
+        }
+        if (note2) {
+            note2.previous = note1;
+        }
+    }
+    static insert(note1, inserted, note2) {
+        this.connect(note1, inserted);
+        this.connect(inserted, note2);
+    }
 }
 /**
  * 二级音符节点链表
@@ -1273,19 +1145,9 @@ class NNNode {
 class NNNList {
     constructor(effectiveBeats) {
         this.effectiveBeats = effectiveBeats;
-        this.head = {
-            "heading": true,
-            "next": null,
-            "parentSeq": this
-        };
-        this.tail = {
-            "tailing": true,
-            "previous": null,
-            "parentSeq": this
-        };
-        this.editorPointer = new Pointer();
-        this.editorPointer.pointTo(this.tail, 0);
-        NoteNode.connect(this.head, this.tail);
+        this.head = new NNNodeLike(0 /* NodeType.HEAD */);
+        this.tail = new NNNodeLike(1 /* NodeType.TAIL */);
+        NNNode.connect(this.head, this.tail);
         this.initJump();
     }
     initJump() {
@@ -1297,79 +1159,32 @@ class NNNList {
         */
         const effectiveBeats = this.effectiveBeats;
         this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
-            if ("tailing" in node) {
+            if (node.type === 1 /* NodeType.TAIL */) {
                 return [null, null];
             }
             const nextNode = node.next;
-            const startTime = "heading" in node ? 0 : TimeCalculator.toBeats(node.startTime);
+            const startTime = node.type === 0 /* NodeType.HEAD */ ? 0 : TimeCalculator.toBeats(node.startTime);
             return [startTime, nextNode];
-        }, (note, beats) => {
+        }, 
+        // @ts-ignore
+        (note, beats) => {
             return TimeCalculator.toBeats(note.startTime) >= beats ? false : note.next; // getNodeAt有guard
         }
         /*,
         (note: Note) => {
             const prev = note.previous;
-            return "heading" in prev ? note : prev
+            return prev.type === NodeType.HEAD ? note : prev
         })*/ );
     }
-    movePointerBeforeStart(pointer, beats) {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump);
-    }
-    movePointerBeforeEnd(pointer, beats) {
-        return this.movePointerWithGivenJumpArray(pointer, beats, this.jump, true);
-    }
-    movePointerWithGivenJumpArray(pointer, beats, jump, useEnd = false) {
-        const distance = NNList.distanceFromPointer(beats, pointer, useEnd);
-        const original = pointer.node;
-        if (distance === 0) {
-            pointer.beats = beats;
-            return [original, original, 0];
-        }
-        const delta = beats - pointer.beats;
-        if (Math.abs(delta) > jump.averageBeats / MINOR_PARTS) {
-            const end = jump.getNodeAt(beats);
-            if (!end) {
-                debugger;
-            }
-            pointer.pointTo(end, beats);
-            return [original, end, distance];
-        }
-        let end;
-        if (distance === 1) {
-            end = original.next; // 多谢了个let，特此留念
-        }
-        else if (distance === -1) {
-            end = "heading" in original.previous ? original : original.previous;
-        }
-        if (!end) {
-            debugger;
-        }
-        pointer.pointTo(end, beats);
-        return [original, end, distance];
-    }
-    getNodeAt(beats, beforeEnd = false, pointer) {
-        if (pointer) {
-            if (beats !== pointer.beats) {
-                if (beforeEnd) {
-                    this.movePointerBeforeEnd(pointer, beats);
-                }
-                else {
-                    this.movePointerBeforeStart(pointer, beats);
-                }
-            }
-            if (!pointer.node) {
-                debugger;
-            }
-            return pointer.node;
-        }
+    getNodeAt(beats, beforeEnd = false) {
         return this.jump.getNodeAt(beats);
     }
     getNode(time) {
         const node = this.getNodeAt(TimeCalculator.toBeats(time), false).previous;
-        if ("heading" in node || TimeCalculator.ne(node.startTime, time)) {
+        if (node.type === 0 /* NodeType.HEAD */ || TimeCalculator.ne(node.startTime, time)) {
             const newNode = new NNNode(time);
             const next = node.next;
-            NoteNode.insert(node, newNode, next);
+            NNNode.insert(node, newNode, next);
             this.jump.updateRange(node, next);
             return newNode;
         }
@@ -1395,6 +1210,9 @@ class JudgeLine {
         this.nnLists = new Map();
         this.eventLayers = [];
         this.children = new Set();
+        this.anchor = [0.5, 0.5];
+        this.hasAttachUI = false;
+        this.rotatesWithFather = false;
         this.name = "Untitled";
         //this.notes = [];
         this.chart = chart;
@@ -1403,11 +1221,22 @@ class JudgeLine {
         // this.noteSpeeds = {};
     }
     static fromRPEJSON(chart, id, data, templates, timeCalculator) {
+        var _a;
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
         chart.judgeLineGroups[data.Group].add(line);
         line.cover = Boolean(data.isCover);
+        line.rotatesWithFather = data.rotate_with_father;
+        line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
+        // Process UI
+        if (data.attachUI) {
+            // Must use template string, otherwise TypeScript would not recognize it as `keyof Chart`
+            // because the type is broadened to `string`
+            // And you cannot assign it to a variable
+            chart[`${data.attachUI}Attach`] = line;
+            line.hasAttachUI = true;
+        }
         const noteNodeTree = chart.nnnList;
         if (data.notes) {
             const holdLists = line.hnLists;
@@ -1425,12 +1254,9 @@ class JudgeLine {
             for (let i = 0; i < len; i++) {
                 const note = new Note(notes[i]);
                 note.computeVisibleBeats(timeCalculator);
-                if (note.speed === 0) {
-                    debugger;
-                }
                 const tree = line.getNNList(note.speed, note.yOffset, note.type === NoteType.hold, false);
                 const cur = tree.currentPoint;
-                const lastHoldTime = "heading" in cur ? [-1, 0, 1] : cur.startTime;
+                const lastHoldTime = cur.type === 0 /* NodeType.HEAD */ ? [-1, 0, 1] : cur.startTime;
                 if (TimeCalculator.eq(lastHoldTime, note.startTime)) {
                     tree.currentPoint.add(note);
                 }
@@ -1480,9 +1306,13 @@ class JudgeLine {
         return line;
     }
     static fromKPAJSON(isOld, chart, id, data, templates, timeCalculator) {
+        var _a;
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
+        line.rotatesWithFather = data.rotatesWithFather;
+        line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
+        line.texture = data.Texture || "line.png";
         chart.judgeLineGroups[data.group].add(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
@@ -1544,14 +1374,14 @@ class JudgeLine {
                 if (!note.visibleBeats) {
                     note.computeVisibleBeats(timeCalculator);
                 }
-                if (!("heading" in cur) && TC.eq(noteData.startTime, cur.startTime)) {
+                if (!(cur.type === 0 /* NodeType.HEAD */) && TC.eq(noteData.startTime, cur.startTime)) {
                     cur.add(note);
                 }
                 else {
                     const node = new NoteNode(noteData.startTime);
                     node.add(note);
-                    nnnList.addNoteNode(node);
                     NoteNode.connect(cur, node);
+                    nnnList.addNoteNode(node);
                     list.currentPoint = node;
                 }
             }
@@ -1591,7 +1421,7 @@ class JudgeLine {
             let endNode;
             while (true) {
                 times.push(TimeCalculator.toBeats(node.time));
-                if ("tailing" in (endNode = node.next)) {
+                if ((endNode = node.next).type === 1 /* NodeType.TAIL */) {
                     break;
                 }
                 node = endNode.next;
@@ -1799,7 +1629,9 @@ class JudgeLine {
             group: judgeLineGroups.indexOf(this.group),
             id: this.id,
             Name: this.name,
-            Texture: "line.png",
+            Texture: this.texture,
+            anchor: this.anchor,
+            rotatesWithFather: this.rotatesWithFather,
             children: children,
             eventLayers: eventLayers,
             hnLists: hnListsData,
@@ -1891,12 +1723,23 @@ class Chart {
         // comboMapping: ComboMapping;
         this.name = "unknown";
         this.level = "unknown";
+        this.composer = "unknown";
+        this.charter = "unknown";
+        this.illustrator = "unknown";
         this.offset = 0;
         this.templateEasingLib = new TemplateEasingLib;
         this.sequenceMap = new Map();
         /**  */
         this.judgeLineGroups = [];
         this.modified = false;
+        this.maxCombo = 0;
+        this.pauseAttach = null;
+        this.combonumberAttach = null;
+        this.comboAttach = null;
+        this.barAttach = null;
+        this.scoreAttach = null;
+        this.nameAttach = null;
+        this.levelAttach = null;
     }
     getEffectiveBeats() {
         const effectiveBeats = this.timeCalculator.secondsToBeats(this.duration);
@@ -1905,13 +1748,18 @@ class Chart {
         return this.effectiveBeats;
     }
     static fromRPEJSON(data, duration) {
-        let chart = new Chart();
+        var _a, _b, _c;
+        const chart = new Chart();
         chart.judgeLineGroups = data.judgeLineGroup.map(group => new JudgeLineGroup(group));
         chart.bpmList = data.BPMList;
         chart.name = data.META.name;
         chart.level = data.META.level;
         chart.offset = data.META.offset;
+        chart.composer = (_a = data.META.composer) !== null && _a !== void 0 ? _a : "unknown";
+        chart.charter = (_b = data.META.charter) !== null && _b !== void 0 ? _b : "unknown";
+        chart.illustrator = (_c = data.META.illustration) !== null && _c !== void 0 ? _c : "unknown";
         chart.duration = duration;
+        chart.chartingTime = data.kpaChartTime;
         chart.rpeChartingTime = data.chartTime ? Math.round(data.chartTime / 60) : 0;
         chart.chartingTime = 0;
         chart.updateCalculator();
@@ -1939,19 +1787,23 @@ class Chart {
                 chart.orphanLines.push(line);
             }
         }
+        chart.countMaxCombo();
         return chart;
     }
     static fromKPAJSON(data) {
-        var _a, _b;
+        var _a, _b, _c, _d, _e;
         const chart = new Chart();
         chart.bpmList = data.bpmList;
         chart.duration = data.duration;
         chart.name = data.info.name;
         chart.level = data.info.level;
+        chart.illustrator = (_a = data.info.illustrator) !== null && _a !== void 0 ? _a : "unknown";
+        chart.composer = (_b = data.info.composer) !== null && _b !== void 0 ? _b : "unknown";
+        chart.charter = (_c = data.info.charter) !== null && _c !== void 0 ? _c : "unknown";
         chart.offset = data.offset;
         chart.judgeLineGroups = data.judgeLineGroups.map(group => new JudgeLineGroup(group));
-        chart.chartingTime = (_a = data.chartTime) !== null && _a !== void 0 ? _a : 0;
-        chart.rpeChartingTime = (_b = data.rpeChartTime) !== null && _b !== void 0 ? _b : 0;
+        chart.chartingTime = (_d = data.chartTime) !== null && _d !== void 0 ? _d : 0;
+        chart.rpeChartingTime = (_e = data.rpeChartTime) !== null && _e !== void 0 ? _e : 0;
         chart.updateCalculator();
         chart.nnnList = new NNNList(chart.getEffectiveBeats());
         const envEasings = data.envEasings;
@@ -1979,6 +1831,18 @@ class Chart {
             chart.orphanLines.push(line);
         }
         chart.judgeLines.sort((a, b) => a.id - b.id);
+        chart.countMaxCombo();
+        const ui = data.ui;
+        if (ui)
+            for (const uiname of ["combo", "combonumber", "score", "pause", "bar", "name", "level"]) {
+                if (typeof ui[uiname] === "number") { // 踩坑，线号可为0
+                    const line = chart.judgeLines[ui[uiname]];
+                    if (!line) {
+                        continue;
+                    }
+                    chart.attachUIToLine(uiname, line);
+                }
+            }
         return chart;
     }
     updateCalculator() {
@@ -1994,6 +1858,7 @@ class Chart {
         }
     }
     dumpKPA() {
+        var _a, _b, _c, _d, _e, _f, _g;
         const eventNodeSequences = new Set();
         const orphanLines = [];
         for (let line of this.orphanLines) {
@@ -2014,6 +1879,15 @@ class Chart {
                 level: this.level,
                 name: this.name
             },
+            ui: {
+                combo: (_a = this.comboAttach) === null || _a === void 0 ? void 0 : _a.id,
+                combonumber: (_b = this.combonumberAttach) === null || _b === void 0 ? void 0 : _b.id,
+                score: (_c = this.scoreAttach) === null || _c === void 0 ? void 0 : _c.id,
+                pause: (_d = this.pauseAttach) === null || _d === void 0 ? void 0 : _d.id,
+                bar: (_e = this.barAttach) === null || _e === void 0 ? void 0 : _e.id,
+                name: (_f = this.nameAttach) === null || _f === void 0 ? void 0 : _f.id,
+                level: (_g = this.levelAttach) === null || _g === void 0 ? void 0 : _g.id
+            },
             offset: this.offset,
             orphanLines: orphanLines,
             judgeLineGroups: this.judgeLineGroups.map(g => g.name),
@@ -2021,22 +1895,79 @@ class Chart {
             rpeChartTime: this.rpeChartingTime
         };
     }
-    getJudgeLineGroups() {
-        // 实现分组逻辑（示例实现）
-        return Array.from(new Set(this.judgeLines.map(line => line.groupId.toString())));
-    }
-    /*
-    getComboInfoEntity(time: TimeT) {
-        const key = toTimeString(time);
-        if (key in this.comboMapping) {
-            return this.comboMapping[key]
-        } else {
-            return this.comboMapping[key] = new ComboInfoEntity()
-        }
-    }
-    */
     createNNNode(time) {
         return new NNNode(time);
+    }
+    createEventNodeSequence(type, name) {
+        if (this.sequenceMap.has(name)) {
+            throw new Error(`The name ${name} is occupied.`);
+        }
+        const seq = EventNodeSequence.newSeq(type, this.getEffectiveBeats());
+        seq.id = name;
+        this.sequenceMap.set(name, seq);
+        return seq;
+    }
+    countMaxCombo() {
+        let combo = 0;
+        const nnnlist = this.nnnList;
+        for (let node = nnnlist.head.next; node.type !== 1 /* NodeType.TAIL */; node = node.next) {
+            const nns = node.noteNodes;
+            const nnsLength = nns.length;
+            for (let i = 0; i < nnsLength; i++) {
+                const nn = nns[i];
+                combo += nn.notes.reduce((prev, note) => prev + (note.isFake ? 0 : 1), 0);
+            }
+            const hns = node.holdNodes;
+            const hnsLength = hns.length;
+            for (let i = 0; i < hnsLength; i++) {
+                const hn = hns[i];
+                combo += hn.notes.reduce((prev, hold) => prev + (hold.isFake ? 0 : 1), 0);
+            }
+        }
+        this.maxCombo = combo;
+    }
+    attachUIToLine(ui, judgeLine) {
+        const key = `${ui}Attach`;
+        if (this[key]) {
+            throw new Error(`UI ${ui} is occupied`);
+        }
+        this[key] = judgeLine;
+        judgeLine.hasAttachUI = true;
+    }
+    detachUI(ui) {
+        const key = `${ui}Attach`;
+        const judgeLine = this[key];
+        if (!judgeLine) {
+            return;
+        }
+        this[key] = null;
+        if (![
+            this.barAttach,
+            this.nameAttach,
+            this.comboAttach,
+            this.scoreAttach,
+            this.combonumberAttach,
+            this.levelAttach,
+            this.pauseAttach
+        ].includes(judgeLine)) {
+            judgeLine.hasAttachUI = false;
+        }
+    }
+    queryJudgeLineUI(judgeLine) {
+        const arr = [];
+        for (const ui of ["combo", "combonumber", "score", "pause", "bar", "name", "level"]) {
+            if (this[`${ui}Attach`] === judgeLine) {
+                arr.push(ui);
+            }
+        }
+        return arr;
+    }
+    scanAllTextures() {
+        const textures = new Set;
+        for (const line of this.judgeLines) {
+            textures.add(line.texture);
+        }
+        return textures;
     }
 }
 class JudgeLineGroup {
@@ -2067,48 +1998,10 @@ class JudgeLineGroup {
             this.judgeLines.splice(index, 1);
         }
     }
-}
-/*
-class ComboInfoEntity {
-    tap: number;
-    drag: number;
-    holdHead: number;
-    flick: number;
-    hold: number;
-    real: number;
-    fake: number;
-    realEnd: number;
-    previous: TypeOrHeader<ComboInfoEntity>;
-    next: TypeOrTailer<ComboInfoEntity>;
-    constructor() {
-        this.tap = 0;
-        this.drag = 0;
-        this.holdHead = 0;
-        this.hold = 0;
-        this.flick = 0;
-        this.real = 0;
-        this.fake = 0;
-        this.realEnd = 0;
-    }
-    add(note: Note) {
-        if (note.isFake) {
-            this.fake++
-        } else {
-            this.real++
-        }
-        this[NoteType[note.type]]++
-    }
-    remove(note: Note) {
-        if (note.isFake) {
-            this.fake--
-        } else {
-            this.real--
-        }
-        
-        this[NoteType[note.type]]--
+    isDefault() {
+        return this.name.toLowerCase() === "default";
     }
 }
-*/ 
 // interface TemplateEasingLib {[name: string]: TemplateEasing}
 /**
  * To compare two arrays
@@ -2128,6 +2021,15 @@ function arrEq(arr1, arr2) {
     }
     return true;
 }
+class EventNodeLike {
+    constructor(type) {
+        /** 后一个事件节点 */
+        this.next = null;
+        /** 前一个事件节点 */
+        this.previous = null;
+        this.type = type;
+    }
+}
 /**
  * 事件节点基类
  * event node.
@@ -2143,12 +2045,11 @@ function arrEq(arr1, arr2) {
  * 与RPE不同的是，KPA使用两个节点来表示一个事件，而不是一个对象。
  * Different from that in RPE, KPA uses two nodes rather than one object to represent an event.
  */
-class EventNode {
+class EventNode extends EventNodeLike {
     constructor(time, value) {
-        this.time = time;
+        super(2 /* NodeType.MIDDLE */);
+        this.time = TimeCalculator.validateIp(time);
         this.value = value !== null && value !== void 0 ? value : 0;
-        this.previous = null;
-        this.next = null;
         this.easing = linearEasing;
     }
     clone(offset) {
@@ -2231,7 +2132,7 @@ class EventNode {
     }
     static insert(node, tarPrev) {
         const tarNext = tarPrev.next;
-        if ("heading" in node.previous) {
+        if (node.previous.type === 0 /* NodeType.HEAD */) {
             throw new Error("Cannot insert a head node before any node");
         }
         this.connect(tarPrev, node.previous);
@@ -2245,7 +2146,7 @@ class EventNode {
      * @returns the next node if it is a tailer, otherwise the next start node
      */
     static nextStartOfStart(node) {
-        return "tailing" in node.next ? node.next : node.next.next;
+        return node.next.type === 1 /* NodeType.TAIL */ ? node.next : node.next.next;
     }
     /**
      *
@@ -2253,10 +2154,10 @@ class EventNode {
      * @returns itself if node is a tailer, otherwise the next start node
      */
     static nextStartOfEnd(node) {
-        return "tailing" in node ? node : node.next;
+        return node.type === 1 /* NodeType.TAIL */ ? node : node.next;
     }
     static previousStartOfStart(node) {
-        return "heading" in node.previous ? node.previous : node.previous.previous;
+        return node.previous.type === 0 /* NodeType.HEAD */ ? node.previous : node.previous.previous;
     }
     /**
      * It does not return the start node which form an event with it.
@@ -2351,25 +2252,6 @@ class EventNode {
         }
     }
 }
-/*
-enum EventNodeType {
-    first,
-    middle,
-    last
-}
-
-
-interface StartNextMap {
-    [EventNodeType.first]: EventEndNode;
-    [EventNodeType.middle]: EventEndNode;
-    [EventNodeType.last]: Tailer<EventStartNode<EventNodeType.last>>;
-}
-interface StartPreviousMap {
-    [EventNodeType.first]: Header<EventStartNode<EventNodeType.first>>;
-    [EventNodeType.middle]: EventEndNode;
-    [EventNodeType.last]: EventEndNode;
-}
-*/
 class EventStartNode extends EventNode {
     constructor(time, value) {
         super(time, value);
@@ -2437,7 +2319,7 @@ class EventStartNode extends EventNode {
     getValueAt(beats) {
         // 除了尾部的开始节点，其他都有下个节点
         // 钩定型缓动也有
-        if ("tailing" in this.next) {
+        if (this.next.type === 1 /* NodeType.TAIL */) {
             return this.value;
         }
         let timeDelta = TimeCalculator.getDelta(this.next.time, this.time);
@@ -2460,7 +2342,7 @@ class EventStartNode extends EventNode {
         return this.value + this.easing.getValue(current / timeDelta) * valueDelta;
     }
     getSpeedValueAt(beats) {
-        if ("tailing" in this.next) {
+        if (this.next.type === 1 /* NodeType.TAIL */) {
             return this.value;
         }
         let timeDelta = TimeCalculator.getDelta(this.next.time, this.time);
@@ -2479,7 +2361,7 @@ class EventStartNode extends EventNode {
         return timeCalculator.segmentToSeconds(TimeCalculator.toBeats(this.time), beats) * (this.value + this.getSpeedValueAt(beats)) / 2 * 120; // 每单位120px
     }
     getFullIntegral(timeCalculator) {
-        if ("tailing" in this.next) {
+        if (this.next.type === 1 /* NodeType.TAIL */) {
             console.log(this);
             throw new Error("getFullIntegral不可用于尾部节点");
         }
@@ -2490,17 +2372,17 @@ class EventStartNode extends EventNode {
         return timeCalculator.segmentToSeconds(startBeats, endBeats) * (this.value + end.value) / 2 * 120;
     }
     isFirstStart() {
-        return this.previous && "heading" in this.previous;
+        return this.previous && this.previous.type === 0 /* NodeType.HEAD */;
     }
     isLastStart() {
-        return this.next && "tailing" in this.next;
+        return this.next && this.next.type === 1 /* NodeType.TAIL */;
     }
     clone(offset) {
         return super.clone(offset);
     }
     ;
     clonePair(offset) {
-        const endNode = !("heading" in this.previous) ? this.previous.clone(offset) : new EventEndNode(this.time, this.value);
+        const endNode = this.previous.type !== 0 /* NodeType.HEAD */ ? this.previous.clone(offset) : new EventEndNode(this.time, this.value);
         const startNode = this.clone(offset);
         EventNode.connect(endNode, startNode);
         return startNode;
@@ -2526,13 +2408,8 @@ class EventStartNode extends EventNode {
         context.stroke();
     }
 }
-/*
-type AnyStartNode = EventStartNode<EventNodeType.first>
-                  | EventStartNode<EventNodeType.middle>
-                  | EventStartNode<EventNodeType.last>
-                  */
 class EventEndNode extends EventNode {
-    get parentSeq() { var _a; return (_a = this.previous) === null || _a === void 0 ? void 0 : _a.parentSeq; }
+    get parentSeq() { var _a; return ((_a = this.previous) === null || _a === void 0 ? void 0 : _a.parentSeq) || null; }
     set parentSeq(_parent) { }
     constructor(time, value) {
         super(time, value);
@@ -2571,16 +2448,9 @@ class EventNodeSequence {
     constructor(type, effectiveBeats) {
         this.type = type;
         this.effectiveBeats = effectiveBeats;
-        this.head = {
-            heading: true,
-            next: null,
-            parentSeq: this
-        };
-        this.tail = {
-            tailing: true,
-            previous: null,
-            parentSeq: this
-        };
+        this.head = new EventNodeLike(0 /* NodeType.HEAD */);
+        this.tail = new EventNodeLike(1 /* NodeType.TAIL */);
+        this.head.parentSeq = this.tail.parentSeq = this;
         this.listLength = 1;
         // this.head = this.tail = new EventStartNode([0, 0, 0], 0)
         // this.nodes = [];
@@ -2600,7 +2470,7 @@ class EventNodeSequence {
         for (let index = 0; index < length; index++) {
             const event = data[index];
             let [start, end] = EventNode.fromEvent(event, templates);
-            if ("heading" in lastEnd) {
+            if (lastEnd.type === 0 /* NodeType.HEAD */) {
                 EventNode.connect(lastEnd, start);
             }
             else if (lastEnd.value === lastEnd.previous.value && lastEnd.previous.easing instanceof NormalEasing) {
@@ -2628,10 +2498,8 @@ class EventNodeSequence {
             // seq.nodes.push(start, end);
         }
         const last = lastEnd;
-        let tail;
-        tail = new EventStartNode((_a = last.time) !== null && _a !== void 0 ? _a : [0, 0, 1], endValue !== null && endValue !== void 0 ? endValue : last.value);
+        const tail = new EventStartNode((_a = last.time) !== null && _a !== void 0 ? _a : [0, 0, 1], endValue !== null && endValue !== void 0 ? endValue : last.value);
         EventNode.connect(last, tail);
-        // @ts-expect-error
         // last can be a header, in which case easing is undefined.
         // then we use the easing that initialized in the EventStartNode constructor.
         tail.easing = (_c = (_b = last.previous) === null || _b === void 0 ? void 0 : _b.easing) !== null && _c !== void 0 ? _c : tail.easing;
@@ -2693,11 +2561,11 @@ class EventNodeSequence {
         }
         this.jump = new JumpArray(this.head, this.tail, originalListLength, effectiveBeats, (node) => {
             // console.log(node)
-            if ("tailing" in node) {
+            if (node.type === 1 /* NodeType.TAIL */) {
                 return [null, null];
             }
-            if ("heading" in node) {
-                if ("tailing" in node.next.next) {
+            if (node.type === 0 /* NodeType.HEAD */) {
+                if (node.next.next.type === 1 /* NodeType.TAIL */) {
                     return [0, node.next.next];
                 }
                 return [0, node.next];
@@ -2705,7 +2573,7 @@ class EventNodeSequence {
             const endNode = node.next;
             const time = TimeCalculator.toBeats(endNode.time);
             const nextNode = endNode.next;
-            if ("tailing" in nextNode.next) {
+            if (nextNode.next.type === 1 /* NodeType.TAIL */) {
                 return [time, nextNode.next]; // Tailer代替最后一个StartNode去占位
             }
             else {
@@ -2714,11 +2582,11 @@ class EventNodeSequence {
         }, (node, beats) => {
             return TimeCalculator.toBeats(node.next.time) > beats ? false : EventNode.nextStartInJumpArray(node);
         }, (node) => {
-            return node.next && "tailing" in node.next ? node.next : node;
+            return node.next && node.next.type === 1 /* NodeType.TAIL */ ? node.next : node;
         }
         /*(node: EventStartNode) => {
             const prev = node.previous;
-            return "heading" in prev ? node : prev.previous;
+            return prev.type === NodeType.HEAD ? node : prev.previous;
         }*/
         );
     }
@@ -2733,7 +2601,7 @@ class EventNodeSequence {
     getNodeAt(beats, usePrev = false) {
         var _a;
         let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats)) || this.head.next;
-        if ("tailing" in node) {
+        if (node.type === 1 /* NodeType.TAIL */) {
             if (usePrev) {
                 return node.previous.previous.previous;
             }
@@ -2742,7 +2610,7 @@ class EventNodeSequence {
         }
         if (usePrev && TimeCalculator.toBeats(node.time) === beats) {
             const prev = node.previous;
-            if (!("heading" in prev)) {
+            if (!(prev.type === 0 /* NodeType.HEAD */)) {
                 node = prev.previous;
             }
         }
@@ -2763,7 +2631,7 @@ class EventNodeSequence {
         previousStartNode.cachedIntegral = -previousStartNode.getIntegral(beats, timeCalculator);
         let totalIntegral = previousStartNode.cachedIntegral;
         let endNode;
-        while (!("tailing" in (endNode = previousStartNode.next))) {
+        while ((endNode = previousStartNode.next).type !== 1 /* NodeType.TAIL */) {
             const currentStartNode = endNode.next;
             totalIntegral += previousStartNode.getFullIntegral(timeCalculator);
             currentStartNode.cachedIntegral = totalIntegral;
@@ -2773,7 +2641,7 @@ class EventNodeSequence {
     dump() {
         const nodes = [];
         let currentNode = this.head.next;
-        while (currentNode && !("tailing" in currentNode.next)) {
+        while (currentNode && !(currentNode.next.type === 1 /* NodeType.TAIL */)) {
             const eventData = currentNode.dump();
             nodes.push(eventData);
             currentNode = currentNode.next.next;
@@ -2856,7 +2724,7 @@ class BPMSequence extends EventNodeSequence {
         let node = this.head.next;
         while (true) {
             node.cachedStartIntegral = integral;
-            if ("tailing" in node.next) {
+            if (node.next.type === 1 /* NodeType.TAIL */) {
                 break;
             }
             const endNode = node.next;
@@ -2870,22 +2738,24 @@ class BPMSequence extends EventNodeSequence {
         }
         const originalListLength = this.listLength;
         this.secondJump = new JumpArray(this.head, this.tail, originalListLength, this.duration, (node) => {
-            if ("tailing" in node) {
+            if (node.type === 1 /* NodeType.TAIL */) {
                 return [null, null];
             }
-            if ("heading" in node) {
+            if (node.type === 0 /* NodeType.HEAD */) {
                 return [0, node.next];
             }
             const endNode = node.next;
             const time = node.cachedIntegral;
             const nextNode = endNode.next;
-            if ("tailing" in nextNode.next) {
+            if (nextNode.next.type === 1 /* NodeType.TAIL */) {
                 return [time, nextNode.next]; // Tailer代替最后一个StartNode去占位
             }
             else {
                 return [time, nextNode];
             }
-        }, (node, seconds) => {
+        }, 
+        // @ts-expect-error
+        (node, seconds) => {
             return node.cachedIntegral > seconds ? false : node.next.next;
         });
     }
@@ -2898,7 +2768,7 @@ class BPMSequence extends EventNodeSequence {
             return this.tail.previous;
         }
         const node = this.secondJump.getNodeAt(seconds);
-        if ("tailing" in node) {
+        if (node.type === 1 /* NodeType.TAIL */) {
             return node.previous;
         }
         return node;
@@ -2912,7 +2782,7 @@ class BPMSequence extends EventNodeSequence {
                 startTime: cur.time
             });
             const end = cur.next;
-            if ("tailing" in end) {
+            if (end.type === 1 /* NodeType.TAIL */) {
                 break;
             }
             cur = end.next;
@@ -3037,6 +2907,14 @@ class TimeCalculator {
     }
 }
 const TC = TimeCalculator;
+/*
+when和on开头的方法都可以绑定监听器
+
+when的监听器绑定的是Z本身的事件
+
+on的绑定的是Z所含的DOM元素事件
+
+*/
 /**
  * Z is just like jQuery, but it's much simpler.
  * It only contains one element, which is enough in most cases.
@@ -3101,6 +2979,7 @@ class Z extends EventTarget {
         if (value) {
             this.element.style[name] = value;
         }
+        return this;
     }
     append(...$elements) {
         const elements = new Array($elements.length);
@@ -3164,6 +3043,9 @@ class Z extends EventTarget {
         this.element.append(fragment);
         return this;
     }
+    isFocused() {
+        return this.element === document.activeElement;
+    }
 }
 const $ = (strOrEle) => typeof strOrEle === "string" ? new Z(strOrEle) : Z.from(strOrEle);
 /*
@@ -3202,14 +3084,17 @@ class ZSwitch extends ZButton {
         return this.element.classList.contains("checked");
     }
     set checked(val) {
+        val = !!val;
         if (val !== this.checked) {
             this.element.classList.toggle("checked", val);
-            console.log("switch checked:", val, this.checked);
+            this.text(val ? this.checkedText || this.innerText : this.innerText);
             this.dispatchEvent(new ZValueChangeEvent());
         }
     }
-    constructor(text) {
-        super(text);
+    constructor(innerText, checkedText) {
+        super(innerText);
+        this.innerText = innerText;
+        this.checkedText = checkedText;
         this.addClass("switch");
         this.onClick(() => {
             this.checked = !this.checked;
@@ -3281,7 +3166,7 @@ class ZInputBox extends Z {
  * An input box with up and down arrows, which can and can only be used to input numbers.
  */
 class ZArrowInputBox extends Z {
-    constructor() {
+    constructor(defaultValue) {
         super("div");
         this.scale = 1;
         this.$input = new ZInputBox();
@@ -3303,6 +3188,9 @@ class ZArrowInputBox extends Z {
         this.$input.whenValueChange(() => {
             this.dispatchEvent(new ZValueChangeEvent());
         });
+        if (defaultValue) {
+            this.setValue(defaultValue);
+        }
     }
     getValue() {
         return this.$input.getNum();
@@ -3311,7 +3199,7 @@ class ZArrowInputBox extends Z {
         this.$input.setValue(val + "");
         return this;
     }
-    onChange(callback) {
+    whenValueChange(callback) {
         this.addEventListener("valueChange", (e) => callback(this.getValue(), e));
         return this;
     }
@@ -3398,7 +3286,6 @@ class ZDropdownOptionBox extends Z {
     }
     constructor(options, up = false) {
         super("div");
-        this.callbacks = [];
         this.addClass("dropdown-option-box");
         if (up) {
             this.addClass("up");
@@ -3429,7 +3316,7 @@ class ZDropdownOptionBox extends Z {
                     this.value.onChanged && this.value.onChanged(this.value);
                     option.onChangedTo && option.onChangedTo(option);
                     this.value = option;
-                    this.callbacks.forEach(f => f(option.text));
+                    this.dispatchEvent(new ZValueChangeEvent());
                 }
             }
         });
@@ -3450,8 +3337,10 @@ class ZDropdownOptionBox extends Z {
             this.removeClass("disabled");
         }
     }
-    onChange(callback) {
-        this.callbacks.push(callback);
+    whenValueChange(callback) {
+        this.addEventListener("valueChange", () => {
+            callback(this.value.text);
+        });
         return this;
     }
     appendOption(option) {
@@ -3484,14 +3373,14 @@ class ZEditableDropdownOptionBox extends Z {
      */
     constructor(options, up = false) {
         super("div");
-        this.callbacks = [];
         this.addClass("dropdown-option-box");
         if (up) {
             this.addClass("up");
         }
         this.$value = new ZInputBox();
         this.$value.onInput(() => {
-            this.value.edit(this.$value.getValue());
+            var _a;
+            (_a = this.value) === null || _a === void 0 ? void 0 : _a.edit(this.$value.getValue());
         });
         this.$value.css("width", "100%");
         const span = $("span");
@@ -3506,9 +3395,10 @@ class ZEditableDropdownOptionBox extends Z {
             optionList.append($element);
         }
         optionList.onClick((event) => {
+            var _a;
             const target = event.target;
             if (target instanceof HTMLDivElement) {
-                if (target !== this.value.getElement(this).release()) {
+                if (target !== ((_a = this.value) === null || _a === void 0 ? void 0 : _a.getElement(this).release())) {
                     let option;
                     for (let i = 0; i < options.length; i++) {
                         option = options[i];
@@ -3519,11 +3409,12 @@ class ZEditableDropdownOptionBox extends Z {
                     this.value.onChanged && this.value.onChanged(this.value);
                     option.onChangedTo && option.onChangedTo(option);
                     this.value = option;
-                    this.callbacks.forEach(f => f(option.text));
+                    this.dispatchEvent(new ZValueChangeEvent());
                 }
             }
         });
-        this.value = options[0];
+        if (options.length > 0)
+            this.value = options[0];
     }
     get disabled() {
         return this._disabled;
@@ -3540,8 +3431,10 @@ class ZEditableDropdownOptionBox extends Z {
             this.removeClass("disabled");
         }
     }
-    onChange(callback) {
-        this.callbacks.push(callback);
+    whenValueChange(callback) {
+        this.addEventListener("valueChange", () => {
+            callback(this.value.text);
+        });
         return this;
     }
     appendOption(option) {
@@ -3559,18 +3452,98 @@ class ZEditableDropdownOptionBox extends Z {
         return this;
     }
 }
-class ZMemorableBox extends ZEditableDropdownOptionBox {
-    constructor(options, up = false) {
-        super([], up);
-        for (let i = 0; i < options.length; i++) {
-            this.appendString(options[i]);
+const THRESHOLD = 100;
+class ZSearchBox extends Z {
+    constructor(searchable, up = false) {
+        super("div");
+        this.count = 5;
+        this.$value = new ZInputBox("");
+        this.$options = $("div").addClass("dropdown-option-list");
+        this.lastFocusOutTime = 0;
+        this._disabled = false;
+        this.addClass("search-box");
+        this.append($("span").append(this.$options));
+        this.append(this.$value);
+        this.$value.onInput(() => {
+            const optionStrings = searchable(this.$value.getValue());
+            if (Array.isArray(optionStrings)) {
+                this.replaceWithOptions(optionStrings.slice(0, this.count));
+            }
+            else {
+                optionStrings.then(strings => {
+                    this.replaceWithOptions(strings.slice(0, this.count));
+                });
+            }
+        });
+        // 如果直接点下拉提示选项，直接判定focusout了，还没有修改值就触发监听器了
+        // 所以不去直接监听输入框，而是监听输入框等50ms后再触发事件。
+        this.$value.whenValueChange(() => {
+            setTimeout(() => {
+                this.dispatchEvent(new ZValueChangeEvent());
+            }, 50);
+            this.lastFocusOutTime = performance.now();
+        });
+    }
+    replaceWithOptions(strings) {
+        this.$options.html("");
+        this.$options.appendMass(() => {
+            for (const string of strings) {
+                const $option = $("div").addClass("box-option").text(string);
+                $option.onClick(() => {
+                    this.value = string;
+                    // 点击的时候focused已经没了，不能用这个作为依据判断
+                    if (!this.wasInputing()) {
+                        this.dispatchEvent(new ZValueChangeEvent());
+                    }
+                    else {
+                        // 输入的时候点和鼠标悬浮时点是不一样的，
+                        // 输入时点不应该保持下拉框，所以强行关掉，100ms后恢复可见性
+                        // 但这时是需要重新悬浮的。
+                        this.$options.hide();
+                        setTimeout(() => this.$options.show(), 100);
+                    }
+                });
+                this.$options.append($option);
+            }
+        });
+    }
+    get value() {
+        return this.$value.getValue();
+    }
+    set value(value) {
+        this.$value.setValue(value);
+    }
+    whenValueChange(callback) {
+        this.addEventListener("valueChange", (event) => {
+            callback(this.value, event);
+        });
+    }
+    get disabled() {
+        return this._disabled;
+    }
+    set disabled(disabled) {
+        if (this._disabled === disabled) {
+            return;
         }
+        this._disabled = disabled;
+        this.$value.disabled = disabled;
     }
-    constructOption(str) {
-        return new EditableBoxOption(str, (o, text) => { this.appendString(text); }, (_) => undefined, (_) => undefined, false);
+    wasInputing() {
+        return performance.now() - this.lastFocusOutTime < 100;
     }
-    appendString(str) {
-        this.appendOption(this.constructOption(str));
+}
+class ZMemorableBox extends ZSearchBox {
+    constructor(options, up = false) {
+        super((prefix) => this.history.filter((s) => s.startsWith(prefix)), up);
+        this.history = [];
+        this.maxHistory = 10;
+        this.history = [...options];
+        this.whenValueChange(() => {
+            this.history.unshift(this.value);
+            if (this.history.length > this.maxHistory) {
+                this.history.pop();
+            }
+        });
     }
 }
 var EasingOptions;
@@ -3603,15 +3576,15 @@ class ZEasingBox extends Z {
     constructor(dropdownUp = false) {
         super("div");
         this.$input = new ZArrowInputBox()
-            .onChange((num) => {
+            .whenValueChange((num) => {
             const easing = easingArray[num];
             this.$easeType.value = EasingOptions.easeTypeOptionsMapping[easing.easeType];
             this.$funcType.value = EasingOptions.funcTypeOptionsMapping[easing.funcType];
             this.value = num;
             this.dispatchEvent(new ZValueChangeEvent());
         });
-        this.$easeType = new ZDropdownOptionBox(EasingOptions.easeTypeOptions, dropdownUp).onChange(() => this.update());
-        this.$funcType = new ZDropdownOptionBox(EasingOptions.funcTypeOptions, dropdownUp).onChange(() => this.update());
+        this.$easeType = new ZDropdownOptionBox(EasingOptions.easeTypeOptions, dropdownUp).whenValueChange(() => this.update());
+        this.$funcType = new ZDropdownOptionBox(EasingOptions.funcTypeOptions, dropdownUp).whenValueChange(() => this.update());
         this.addClass("flex-row")
             .append(this.$input, $("span").text("Ease"), this.$easeType, this.$funcType);
     }
@@ -3774,6 +3747,7 @@ class ZTextArea extends Z {
         super("textarea");
         this.attr("rows", rows + "");
         this.attr("cols", cols + "");
+        this.attr("spellcheck", "false");
     }
     getValue() {
         return this.element.value;
@@ -3829,8 +3803,12 @@ class ZCollapseController extends Z {
             }
         }
     }
-    attach($element) {
-        this.targets.push($element);
+    attach(...arr$element) {
+        this.targets.push(...arr$element);
+        if (this.folded)
+            for (const $element of arr$element) {
+                $element.hide();
+            }
     }
 }
 const connect = (foreNode, lateNode) => {
@@ -3967,31 +3945,114 @@ function getPercentile(sorted, percentile) {
     return sorted[Math.floor(sorted.length * percentile)];
 }
 const isAllDigits = (str) => /^\d+$/.test(str);
+const extend = (target, source) => {
+    Object.keys(source).forEach(key => {
+        if (source[key] !== undefined) {
+            target[key] = source[key];
+        }
+    });
+};
+/**
+ * 检查值的类型
+ * @param value
+ * @param type 为字符串时，用typeof检测，为构造函数时，用instanceof检测，为数组时，识别为元组类型。
+ */
+const checkType = (value, type) => {
+    if (Array.isArray(type)) {
+        return Array.isArray(value)
+            && value.length === type.length
+            && type.every((t, i) => checkType(value[i], t));
+    }
+    else if (typeof type === "string") {
+        return typeof value === type;
+    }
+    else {
+        return value instanceof type;
+    }
+};
+const numNoun = (num, singular, plural = singular + "s") => {
+    if (num <= 1) {
+        return `${num} ${singular}`;
+    }
+    else {
+        return `${num} ${plural}`;
+    }
+};
+const numNounWithoutZero = (num, singular, plural = singular + "s") => {
+    if (num === 0) {
+        return "";
+    }
+    else {
+        return numNoun(num, singular, plural);
+    }
+};
+const bisearchInsertLeft = (arr, target) => {
+    let left = 0, right = arr.length;
+    while (left < right) {
+        const mid = Math.floor((left + right) / 2);
+        if (arr[mid] < target) {
+            left = mid + 1;
+        }
+        else {
+            right = mid;
+        }
+    }
+    return left;
+};
+const formatTime = (minutes, seconds) => {
+    if ((seconds === undefined || seconds === 0) && (minutes === undefined || minutes === 0)) {
+        return "0";
+    }
+    if (seconds > 60) {
+        minutes += Math.floor(seconds / 60);
+        seconds %= 60;
+    }
+    const hrs = Math.floor(minutes / 60);
+    minutes %= 60;
+    return numNounWithoutZero(hrs, "hr") + " " + numNounWithoutZero(minutes, "min") + " " + numNounWithoutZero(seconds, "sec");
+};
 class NeedsReflowEvent extends Event {
     constructor(condition) {
         super("needsreflow");
         this.condition = condition;
     }
 }
+class OperationEvent extends Event {
+    constructor(t, operation) {
+        super(t);
+        this.operation = operation;
+    }
+}
+class OperationErrorEvent extends OperationEvent {
+    constructor(operation, error) {
+        super("error", operation);
+        this.error = error;
+    }
+}
 class OperationList extends EventTarget {
-    constructor(parentChart) {
+    constructor(chart) {
         super();
-        this.parentChart = parentChart;
+        this.chart = chart;
         this.operations = [];
         this.undoneOperations = [];
     }
     undo() {
         const op = this.operations.pop();
         if (op) {
-            if (!this.parentChart.modified) {
-                this.parentChart.modified = true;
+            if (!this.chart.modified) {
+                this.chart.modified = true;
                 this.dispatchEvent(new Event("firstmodified"));
             }
-            this.undoneOperations.push(op);
-            op.undo();
-            if (op.updatesEditor) {
-                editor.update();
+            try {
+                op.undo(this.chart);
             }
+            catch (e) {
+                this.dispatchEvent(new OperationErrorEvent(op, e));
+                return;
+            }
+            this.undoneOperations.push(op);
+            this.dispatchEvent(new OperationEvent("undo", op));
+            this.processFlags(op);
         }
         else {
             this.dispatchEvent(new Event("noundo"));
@@ -4000,18 +4061,20 @@ class OperationList extends EventTarget {
     redo() {
         const op = this.undoneOperations.pop();
         if (op) {
-            if (!this.parentChart.modified) {
-                this.parentChart.modified = true;
+            if (!this.chart.modified) {
+                this.chart.modified = true;
                 this.dispatchEvent(new Event("firstmodified"));
             }
+            try {
+                op.do(this.chart);
+            }
+            catch (e) {
+                this.dispatchEvent(new OperationErrorEvent(op, e));
+                return;
+            }
             this.operations.push(op);
-            op.do();
-            if (op.updatesEditor) {
-                this.dispatchEvent(new Event("needsupdate"));
-            }
-            if (op.reflows) {
-                this.dispatchEvent(new NeedsReflowEvent(op.reflows));
-            }
+            this.dispatchEvent(new OperationEvent("redo", op));
+            this.processFlags(op);
         }
         else {
             this.dispatchEvent(new Event("noredo"));
@@ -4021,30 +4084,42 @@ class OperationList extends EventTarget {
         if (operation.ineffective) {
             return;
         }
-        if (!this.parentChart.modified) {
-            this.parentChart.modified = true;
+        if (!this.chart.modified) {
+            this.chart.modified = true;
             this.dispatchEvent(new Event("firstmodified"));
         }
+        // 如果上一个操作是同一个构造器的，那么修改上一个操作而不是推入新的操作
         if (this.operations.length !== 0) {
             const lastOp = this.operations[this.operations.length - 1];
             if (operation.constructor === lastOp.constructor) {
+                // 返回值指示是否重写成功
                 if (lastOp.rewrite(operation)) {
-                    if (operation.updatesEditor) {
-                        this.dispatchEvent(new Event("needupdate"));
-                    }
+                    this.processFlags(operation);
                     return;
                 }
             }
         }
-        operation.do();
+        try {
+            operation.do(this.chart);
+        }
+        catch (e) {
+            this.dispatchEvent(new OperationErrorEvent(operation, e));
+            return;
+        }
+        this.dispatchEvent(new OperationEvent("do", operation));
+        this.processFlags(operation);
+        this.operations.push(operation);
+    }
+    processFlags(operation) {
         if (operation.updatesEditor) {
-            this.dispatchEvent(new Event("needupdate"));
+            this.dispatchEvent(new Event("needsupdate"));
+        }
+        if (operation.needsComboRecount) {
+            this.dispatchEvent(new Event("maxcombochanged"));
         }
         if (operation.reflows) {
-            console.log(operation.reflows);
             this.dispatchEvent(new NeedsReflowEvent(operation.reflows));
         }
-        this.operations.push(operation);
     }
     clear() {
         this.operations = [];
@@ -4054,50 +4129,82 @@ class Operation {
     constructor() {
     }
     rewrite(op) { return false; }
+    toString() {
+        return this.constructor.name;
+    }
+    static lazy(...args) {
+        return new LazyOperation(this, ...args);
+    }
+}
+/**
+ * 懒操作，实例化的时候不记录任何数据，do的时候才执行真正实例化
+ * 防止连续的操作中状态改变导致的错误
+ */
+class LazyOperation extends Operation {
+    constructor(operationClass, ...args) {
+        super();
+        this.operation = null;
+        this.operationClass = operationClass;
+        this.args = args;
+    }
+    do(chart) {
+        this.operation = new this.operationClass(...this.args);
+        this.operation.do(chart);
+    }
+    undo(chart) {
+        this.operation.undo(chart);
+    }
 }
 class ComplexOperation extends Operation {
     constructor(...sub) {
         super();
         this.subOperations = sub;
         this.length = sub.length;
+        this.reflows = sub.reduce((prev, op) => prev | op.reflows, 0);
+        this.updatesEditor = sub.some((op) => op.updatesEditor);
+        this.needsComboRecount = sub.some((op) => op.needsComboRecount);
     }
-    do() {
+    // 这样子写不够严密，如果要继承这个类，并且子操作需要谱面，就要重写这个方法的签名
+    do(chart) {
         const length = this.length;
         for (let i = 0; i < length; i++) {
             const op = this.subOperations[i];
             if (op.ineffective) {
                 continue;
             }
-            op.do();
+            op.do(chart);
         }
     }
-    undo() {
+    undo(chart) {
         const length = this.length;
         for (let i = length - 1; i >= 0; i--) {
             const op = this.subOperations[i];
             if (op.ineffective) {
                 continue;
             }
-            op.undo();
+            op.undo(chart);
         }
     }
 }
-class NoteValueChangeOperation extends Operation {
+class NotePropChangeOperation extends Operation {
     constructor(note, field, value) {
         super();
         this.updatesEditor = true;
         this.field = field;
         this.note = note;
         this.value = value;
+        if (!checkType(value, notePropTypes[field])) {
+            throw new TypeError(`Invalid value for ${field}. Got *${value}*, expected ${notePropTypes[field]}`);
+        }
         this.previousValue = note[field];
+        if (field === "isFake") {
+            this.needsComboRecount = true;
+        }
         if (value === note[field]) {
             this.ineffective = true;
         }
     }
     do() {
-        if (this.field === "endTime") {
-            console.log("endTime");
-        }
         this.note[this.field] = this.value;
     }
     undo() {
@@ -4115,6 +4222,7 @@ class NoteValueChangeOperation extends Operation {
 class NoteRemoveOperation extends Operation {
     constructor(note) {
         super();
+        this.needsComboRecount = true;
         this.note = note; // In memory of forgettting to add this(
         this.isHold = note.type === NoteType.hold;
         if (!note.parentNode) {
@@ -4179,6 +4287,7 @@ class NoteAddOperation extends Operation {
     constructor(note, node) {
         super();
         this.updatesEditor = true;
+        this.needsComboRecount = true;
         this.note = note;
         this.isHold = note.type === NoteType.hold;
         this.noteNode = node;
@@ -4220,6 +4329,7 @@ class MultiNoteAddOperation extends ComplexOperation {
             return new NoteAddOperation(note, node);
         }));
         this.updatesEditor = true;
+        this.needsComboRecount = true;
         if (notes.length === 0) {
             this.ineffective = true;
         }
@@ -4227,8 +4337,14 @@ class MultiNoteAddOperation extends ComplexOperation {
 }
 class NoteTimeChangeOperation extends ComplexOperation {
     constructor(note, noteNode) {
-        super(new NoteRemoveOperation(note), new NoteValueChangeOperation(note, "startTime", noteNode.startTime), new NoteAddOperation(note, noteNode));
+        if (note.type === NoteType.hold) {
+            super(new NoteRemoveOperation(note), new NotePropChangeOperation(note, "startTime", noteNode.startTime), new NoteAddOperation(note, noteNode));
+        }
+        else {
+            super(new NoteRemoveOperation(note), new NotePropChangeOperation(note, "startTime", noteNode.startTime), new NoteAddOperation(note, noteNode), new NotePropChangeOperation(note, "endTime", noteNode.startTime));
+        }
         this.updatesEditor = true;
+        this.needsComboRecount = false;
         if (note.type === NoteType.hold && !TimeCalculator.gt(note.endTime, noteNode.startTime)) {
             this.ineffective = true;
         }
@@ -4237,6 +4353,7 @@ class NoteTimeChangeOperation extends ComplexOperation {
             this.ineffective = true;
         }
     }
+    // 真的是巨坑啊
     rewrite(operation) {
         if (operation.note === this.note) {
             this.subOperations[0] = new NoteRemoveOperation(this.note);
@@ -4247,14 +4364,25 @@ class NoteTimeChangeOperation extends ComplexOperation {
             this.subOperations[1].do();
             this.subOperations[2].noteNode = operation.subOperations[2].noteNode;
             this.subOperations[2].do();
+            if (operation.subOperations[3]) {
+                if (this.subOperations[3]) {
+                    this.subOperations[3].value = operation.subOperations[3].value;
+                    this.subOperations[3].do();
+                }
+                else {
+                    this.subOperations.push(operation.subOperations[3]);
+                    this.subOperations[3].do();
+                }
+            }
             return true;
         }
         return false;
     }
 }
-class HoldEndTimeChangeOperation extends NoteValueChangeOperation {
+class HoldEndTimeChangeOperation extends NotePropChangeOperation {
     constructor(note, value) {
         super(note, "endTime", value);
+        this.needsComboRecount = false;
         if (!TimeCalculator.gt(value, note.startTime)) {
             this.ineffective = true;
         }
@@ -4289,7 +4417,7 @@ class HoldEndTimeChangeOperation extends NoteValueChangeOperation {
 }
 class NoteSpeedChangeOperation extends ComplexOperation {
     constructor(note, value, line) {
-        const valueChange = new NoteValueChangeOperation(note, "speed", value);
+        const valueChange = new NotePropChangeOperation(note, "speed", value);
         const tree = line.getNNList(value, note.yOffset, note.type === NoteType.hold, true);
         const node = tree.getNodeOf(note.startTime);
         const removal = new NoteRemoveOperation(note);
@@ -4300,7 +4428,7 @@ class NoteSpeedChangeOperation extends ComplexOperation {
 }
 class NoteYOffsetChangeOperation extends ComplexOperation {
     constructor(note, value, line) {
-        const valueChange = new NoteValueChangeOperation(note, "yOffset", value);
+        const valueChange = new NotePropChangeOperation(note, "yOffset", value);
         const tree = line.getNNList(note.speed, value, note.type === NoteType.hold, true);
         const node = tree.getNodeOf(note.startTime);
         const removal = new NoteRemoveOperation(note);
@@ -4311,9 +4439,8 @@ class NoteYOffsetChangeOperation extends ComplexOperation {
 }
 class NoteTypeChangeOperation extends ComplexOperation {
     constructor(note, value) {
-        this.updatesEditor = true;
         const isHold = note.type === NoteType.hold;
-        const valueChange = new NoteValueChangeOperation(note, "type", value);
+        const valueChange = new NotePropChangeOperation(note, "type", value);
         if (isHold !== (value === NoteType.hold)) {
             const tree = note.parentNode.parentSeq.parentLine.getNNList(note.speed, note.yOffset, !isHold, true);
             const node = tree.getNodeOf(note.startTime);
@@ -4324,6 +4451,7 @@ class NoteTypeChangeOperation extends ComplexOperation {
         else {
             super(valueChange);
         }
+        this.updatesEditor = true;
     }
 }
 class NoteTreeChangeOperation extends NoteAddOperation {
@@ -4423,7 +4551,7 @@ class MultiNodeAddOperation extends ComplexOperation {
 }
 class MultiNodeDeleteOperation extends ComplexOperation {
     constructor(nodes) {
-        super(...nodes.map(node => new EventNodePairRemoveOperation(node)));
+        super(...nodes.map(node => EventNodePairRemoveOperation.lazy(node)));
         this.updatesEditor = true;
     }
 }
@@ -4454,7 +4582,7 @@ class EventNodeTimeChangeOperation extends Operation {
     constructor(node, val) {
         super();
         this.updatesEditor = true;
-        if ("heading" in node.previous) {
+        if (node.previous.type === 0 /* NodeType.HEAD */) {
             this.ineffective = true;
             return;
         }
@@ -4661,6 +4789,22 @@ class JudgeLineRenameOperation extends Operation {
         this.judgeLine.name = this.originalValue;
     }
 }
+class JudgeLinePropChangeOperation extends Operation {
+    constructor(judgeLine, field, value) {
+        super();
+        this.judgeLine = judgeLine;
+        this.field = field;
+        this.value = value;
+        this.updatesEditor = true;
+        this.originalValue = judgeLine[field];
+    }
+    do() {
+        this.judgeLine[this.field] = this.value;
+    }
+    undo() {
+        this.judgeLine[this.field] = this.originalValue;
+    }
+}
 class JudgeLineRegroupOperation extends Operation {
     constructor(judgeLine, value) {
         super();
@@ -4723,6 +4867,116 @@ class JudgeLineDeleteOperation extends Operation {
         this.chart.judgeLines.push(this.judgeLine);
         this.chart.orphanLines.push(this.judgeLine);
         this.originalGroup.add(this.judgeLine);
+    }
+}
+class JudgeLineENSChangeOperation extends Operation {
+    constructor(judgeLine, layerId, typeStr, value) {
+        super();
+        this.judgeLine = judgeLine;
+        this.layerId = layerId;
+        this.typeStr = typeStr;
+        this.value = value;
+        this.originalValue = judgeLine.eventLayers[layerId][typeStr];
+    }
+    do() {
+        this.judgeLine.eventLayers[this.layerId][this.typeStr] = this.value;
+    }
+    undo() {
+        this.judgeLine.eventLayers[this.layerId][this.typeStr] = this.originalValue;
+    }
+}
+class EventNodeSequenceRenameOperation extends Operation {
+    constructor(sequence, newName) {
+        super();
+        this.sequence = sequence;
+        this.newName = newName;
+        this.updatesEditor = true;
+        this.originalName = sequence.id;
+        if (this.originalName === newName) {
+            this.ineffective = true;
+        }
+    }
+    do(chart) {
+        chart.sequenceMap.set(this.newName, this.sequence);
+        chart.sequenceMap.delete(this.originalName);
+        this.sequence.id = this.newName;
+    }
+    undo(chart) {
+        chart.sequenceMap.set(this.originalName, this.sequence);
+        chart.sequenceMap.delete(this.newName);
+        this.sequence.id = this.originalName;
+    }
+}
+class AttachUIOperation extends Operation {
+    constructor(chart, judgeLine, ui) {
+        super();
+        this.chart = chart;
+        this.judgeLine = judgeLine;
+        this.ui = ui;
+        this.updatesEditor = true;
+    }
+    do() {
+        this.chart.attachUIToLine(this.ui, this.judgeLine);
+    }
+    undo() {
+        this.chart.detachUI(this.ui);
+    }
+}
+class DetachUIOperation extends Operation {
+    constructor(chart, ui) {
+        super();
+        this.chart = chart;
+        this.ui = ui;
+        this.updatesEditor = true;
+        if (chart[`${ui}Attach`]) {
+            this.judgeLine = chart[`${ui}Attach`];
+        }
+        else {
+            this.ineffective = true;
+        }
+    }
+    do() {
+        this.chart.detachUI(this.ui);
+    }
+    undo() {
+        this.chart.attachUIToLine(this.ui, this.judgeLine);
+    }
+}
+class DetachJudgeLineOperation extends Operation {
+    constructor(chart, judgeLine) {
+        super();
+        this.chart = chart;
+        this.judgeLine = judgeLine;
+        this.updatesEditor = true;
+        this.uinames = chart.queryJudgeLineUI(this.judgeLine);
+    }
+    do() {
+        for (let ui of this.uinames) {
+            this.chart.detachUI(ui);
+        }
+    }
+    undo() {
+        for (let ui of this.uinames) {
+            this.chart.attachUIToLine(ui, this.judgeLine);
+        }
+    }
+}
+class ChartPropChangeOperation extends Operation {
+    constructor(chart, field, value) {
+        super();
+        this.chart = chart;
+        this.field = field;
+        this.value = value;
+        this.originalValue = chart[field];
+        if (field === "level" || field === "name") {
+            this.updatesEditor = true;
+        }
+    }
+    do() {
+        this.chart[this.field] = this.value;
+    }
+    undo() {
+        this.chart[this.field] = this.originalValue;
     }
 }
 const BEZIER_POINT_SIZE = 20;
@@ -4869,24 +5123,20 @@ class SideEntityEditor extends SideEditor {
 class NoteEditor extends SideEntityEditor {
     ;
     ;
-    ;
     constructor() {
         super();
-        this.aboveOption = new BoxOption("above", () => this.target.above = true);
-        this.belowOption = new BoxOption("below", () => this.target.above = false);
-        this.realOption = new BoxOption("true", () => this.target.isFake = false);
-        this.fakeOption = new BoxOption("fake", () => this.target.isFake = true);
         this.noteTypeOptions = ["tap", "hold", "flick", "drag"]
             .map((v) => new BoxOption(v, () => {
             editor.operationList.do(new NoteTypeChangeOperation(this.target, NoteType[v]));
         }));
+        this.$warning = $("span").addClass("side-editor-warning");
         this.$time = new ZFractionInput();
         this.$endTime = new ZFractionInput();
         this.$type = new ZDropdownOptionBox(this.noteTypeOptions);
         this.$position = new ZInputBox();
-        this.$dir = new ZDropdownOptionBox([this.aboveOption, this.belowOption]);
+        this.$dir = new ZSwitch("below", "above"); // 不用RPE的那种下拉框形式，少一个操作
         this.$speed = new ZInputBox();
-        this.$fake = new ZDropdownOptionBox([this.fakeOption, this.realOption]);
+        this.$real = new ZSwitch("fake", "real");
         this.$alpha = new ZInputBox();
         this.$size = new ZInputBox();
         this.$yOffset = new ZInputBox();
@@ -4894,9 +5144,10 @@ class NoteEditor extends SideEntityEditor {
         this.$tint = new ZInputBox();
         this.$tintHitEffect = new ZInputBox();
         this.$judgeSize = new ZInputBox();
+        this.$setAsDefault = new ZButton("Set as default");
         this.$delete = new ZButton("Delete").addClass("destructive");
-        this.$title.text("Note");
-        this.$body.append($("span").text("speed"), this.$speed, $("span").text("time"), $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime), $("span").text("type"), this.$type, $("span").text("pos"), this.$position, $("span").text("dir"), this.$dir, $("span").text("real"), this.$fake, $("span").text("alpha"), this.$alpha, $("span").text("size"), this.$size, $("span").text("AbsYOffset"), this.$yOffset, $("span").text("visibleBeats"), this.$visibleBeats, $("span").text("tint"), this.$tint, $("span").text("tintHitEffects"), this.$tintHitEffect, $("span").text("judgeSize"), this.$judgeSize, $("span").text("del"), this.$delete);
+        this.$title.text("Note (NULL)");
+        this.$body.append(this.$warning, $("span").text("speed"), this.$speed, $("span").text("time"), $("div").addClass("flex-row").append(this.$time, $("span").text(" ~ "), this.$endTime), $("span").text("type"), this.$type, $("span").text("pos"), this.$position, $("span").text("dir"), this.$dir, $("span").text("real"), this.$real, $("span").text("alpha"), this.$alpha, $("span").text("size"), this.$size, $("span").text("AbsYOffset"), this.$yOffset, $("span").text("visibleBeats"), this.$visibleBeats, $("span").text("tint"), this.$tint, $("span").text("tintHitEffects"), this.$tintHitEffect, $("span").text("judgeSize"), this.$judgeSize, this.$setAsDefault, this.$delete);
         this.$time.onChange((t) => {
             editor.operationList.do(new NoteTimeChangeOperation(this.target, this.target.parentNode.parentSeq.getNodeOf(t)));
             if (this.target.type !== NoteType.hold) {
@@ -4906,43 +5157,72 @@ class NoteEditor extends SideEntityEditor {
         this.$endTime.onChange((t) => {
             editor.operationList.do(new HoldEndTimeChangeOperation(this.target, t));
         });
+        this.$dir.whenClickChange((checked) => {
+            editor.operationList.do(new NotePropChangeOperation(this.target, "above", checked));
+        });
+        this.$real.whenClickChange((checked) => {
+            editor.operationList.do(new NotePropChangeOperation(this.target, "isFake", !checked));
+        });
         // 这里缺保卫函数
         this.$position.whenValueChange(() => {
-            editor.operationList.do(new NoteValueChangeOperation(this.target, "positionX", this.$position.getNum()));
+            editor.operationList.do(new NotePropChangeOperation(this.target, "positionX", this.$position.getNum()));
         });
         this.$speed.whenValueChange(() => {
             editor.operationList.do(new NoteSpeedChangeOperation(this.target, this.$speed.getNum(), this.target.parentNode.parentSeq.parentLine));
         });
         this.$alpha.whenValueChange(() => {
-            editor.operationList.do(new NoteValueChangeOperation(this.target, "alpha", this.$alpha.getNum()));
+            editor.operationList.do(new NotePropChangeOperation(this.target, "alpha", this.$alpha.getNum()));
         });
         this.$size.whenValueChange(() => {
-            editor.operationList.do(new NoteValueChangeOperation(this.target, "size", this.$size.getNum()));
+            editor.operationList.do(new NotePropChangeOperation(this.target, "size", this.$size.getNum()));
         });
         this.$yOffset.whenValueChange(() => {
             editor.operationList.do(new NoteYOffsetChangeOperation(this.target, this.$yOffset.getNum(), this.target.parentNode.parentSeq.parentLine));
         });
         this.$visibleBeats.whenValueChange(() => {
-            editor.operationList.do(new NoteValueChangeOperation(this.target, "visibleBeats", this.$visibleBeats.getNum()));
+            editor.operationList.do(new NotePropChangeOperation(this.target, "visibleBeats", this.$visibleBeats.getNum()));
         });
         this.$delete.onClick(() => {
             editor.operationList.do(new NoteDeleteOperation(this.target));
         });
         this.$tint.whenValueChange((str) => {
-            editor.operationList.do(new NoteValueChangeOperation(this.target, "tint", str === "" ? undefined : parseInt(str, 16)));
+            editor.operationList.do(new NotePropChangeOperation(this.target, "tint", str === "" ? undefined : parseInt(str, 16)));
         });
         this.$tintHitEffect.whenValueChange((str) => {
-            editor.operationList.do(new NoteValueChangeOperation(this.target, "tintHitEffects", str === "" ? undefined : parseInt(str, 16)));
+            editor.operationList.do(new NotePropChangeOperation(this.target, "tintHitEffects", str === "" ? undefined : parseInt(str, 16)));
         });
         this.$judgeSize.whenValueChange(() => {
-            editor.operationList.do(new NoteValueChangeOperation(this.target, "judgeSize", this.$judgeSize.getNum()));
+            editor.operationList.do(new NotePropChangeOperation(this.target, "judgeSize", this.$judgeSize.getNum()));
+        });
+        this.$setAsDefault.onClick(() => {
+            const note = this.target;
+            if (!note) {
+                return;
+            }
+            editor.notesEditor.defaultConfig = {
+                alpha: note.alpha,
+                size: note.size,
+                speed: note.speed,
+                isFake: note.isFake ? 1 : 0,
+                absoluteYOffset: note.yOffset,
+                visibleBeats: note.visibleBeats
+            };
         });
     }
     update() {
         const note = this.target;
         if (!note) {
+            this.$title.text("Note (NULL)");
             return;
         }
+        const nnList = note.parentNode.parentSeq;
+        if (note.parentNode.parentSeq.parentLine !== editor.judgeLinesEditor.selectedLine) {
+            this.$warning.text("This Note doe not belong to the selected JudgeLine.");
+        }
+        else {
+            this.$warning.text("");
+        }
+        this.$title.text(`Note (from #${nnList.parentLine.id}.${nnList.id})`);
         this.$time.setValue(note.startTime);
         if (note.type === NoteType.hold) {
             this.$endTime.setValue(note.endTime);
@@ -4954,8 +5234,8 @@ class NoteEditor extends SideEntityEditor {
         }
         this.$type.value = this.noteTypeOptions[note.type - 1];
         this.$position.setValue(note.positionX + "");
-        this.$dir.value = note.above ? this.aboveOption : this.belowOption;
-        this.$fake.value = note.isFake ? this.fakeOption : this.realOption;
+        this.$dir.checked = note.above;
+        this.$real.checked = !note.isFake;
         this.$speed.setValue(note.speed + "");
         this.$alpha.setValue(note.alpha + "");
         this.$yOffset.setValue(note.yOffset + "");
@@ -4966,30 +5246,296 @@ class NoteEditor extends SideEntityEditor {
         this.$judgeSize.setValue(note.judgeSize + "");
     }
 }
+const processTimeArg = (time) => {
+    if (typeof time === "string") {
+        try {
+            return processTimeArg(time.match(/^(\d+):(\d+)\/(\d+)$/).map(s => parseInt(s)));
+        }
+        catch (e) {
+            throw new Error(`Invalid time format: ${time}`);
+        }
+    }
+    else if (typeof time === "number") {
+        return time;
+    }
+    else {
+        time = [...time]; // 防止从别的什么地方找来一个数据
+        TimeCalculator.validateIp(time); // 原地规范化，如果失败就会抛错误，这里不用捕获
+        return TimeCalculator.toBeats(time);
+    }
+};
+/**
+ * 多音符编辑的辅助函数
+ * @param note 原封不动传入音符
+ * @param easingFunc 缓动函数（ease开头）
+ * @param start 开始点
+ * @param end 结束点
+ * @returns
+ */
+const fillCurve = (note, easingFunc, start, end) => {
+    if (easingFunc instanceof Easing) {
+        const easing = easingFunc;
+        easingFunc = (t) => easing.getValue(t);
+    }
+    const startBeats = processTimeArg(start[0]);
+    const endBeats = processTimeArg(end[0]);
+    const timeDelta = endBeats - startBeats;
+    const valueDelta = end[1] - start[1];
+    return easingFunc((TimeCalculator.toBeats("startTime" in note ? note.startTime : note.time) - startBeats) / timeDelta) * valueDelta + start[1];
+};
+const snippets = {
+    blank: "",
+    "fillCurve (with comments)": `fillCurve(
+// note to be modified
+// 要修改的音符/节点
+    note,
+// Any easing function
+// Note: there is no "easeIn/Out/InOutLinear" function.
+// Use linear(t) instead.
+// You can also use an easing object as parameter.
+// e. g. easingMap.linear.in, easingMap.cubic.inout,
+// editor.chart.templateEasingLib.get("myTemplateEasing")
+// 任意缓动函数
+// 注意线性缓动函数就是linear(t)，
+// 没有easeIn/Out/InOutLinear这几种说法
+// 也可以把缓动对象作为参数
+    easeInOutQuad,
+    [
+// 起始时间 Starting Time
+// 可以是[整数, 分子, 分母] Can be [int, nume, deno]
+// "整数:分子/分母" "int:nume/deno" e.g.     "0:0:1"
+// 或者就直接写一个数字 Or just a number e.g. 0
+        [0, 0, 1],
+// 起始值 Starting Value
+        114
+    ],
+    [
+// 结束时间 Ending time
+        [1, 0, 1],
+// 结束值 Ending Value
+        514
+    ]
+)`,
+    fillCurve: `fillCurve(
+    noteOrNode,
+    easeInOutQuad,
+    [
+        [0, 0, 1],
+        114
+    ],
+    [
+        [1, 0, 1],
+        514
+    ]
+)`,
+    help: `
+// 这是多事件/音符编辑的帮助文档。
+// 你需要在当前文本框输入一个JavaScript表达式，然后点击Execute。
+// 该表达式在一个函数中运行，函数接收两个参数：
+// note/node 当前音符/节点 val 当前音符/节点的原有属性值
+// 例如，如果您在编辑多个音符，在属性下拉框中选中positionX，
+// 在此代码框中输入：val + 100，然后点击Execute，
+// 则所有音符的positionX都会被加上100。
+// 如果你在编辑多个事件节点，
+// 你可以选择开始、结束、背靠背、面对面四种模式。
+
+// This is the help documentation of multi-note/node editor.
+// You need to input a JavaScript expression in the code textarea, then click Execute.
+// The expression will be run in a function that receives two parameters:
+// 'note'/'node' The current note/node, 'val' The original value of the note/node
+// For example, if you are editing multiple notes, select positionX in the property dropdown,
+// input val + 100 in the code box, and click Execute, all notes' positionX will be added 100.
+// If you are editing multiple nodes,
+// you can choose four modes: start, end, back-to-back, face-to-face.
+`
+};
 class MultiNoteEditor extends SideEntityEditor {
     constructor() {
         super();
-        this.$title.text("Multi Notes");
-        this.$delete = new ZButton("Delete").addClass("destructive");
         this.$reverse = new ZButton("Reverse");
-        this.$body.append(this.$delete, this.$reverse);
+        this.$delete = new ZButton("Delete").addClass("destructive");
+        this.$propOptionBox = new ZDropdownOptionBox([
+            "above", "alpha", "endTime", "isFake", "judgeSize", "positionX",
+            "size", "speed", "startTime", "tint", "tintHitEffects", "type",
+            "visibleBeats", "yOffset"
+        ].map((n) => new BoxOption(n)));
+        this.$code = new ZTextArea();
+        this.$execute = new ZButton("Execute").addClass("progressive");
+        this.$snippets = new ZDropdownOptionBox(Object.keys(snippets).map((n) => new BoxOption(n)))
+            .css("width", "100%");
+        this.$fillDensityInput = new ZFractionInput();
+        this.$fill = new ZButton("Fill").addClass("progressive");
+        this.$fillWarning = $("span").addClass("side-editor-warning");
+        this.$title.text("Multi Notes");
+        this.$body.append(this.$delete, this.$reverse, $("span")
+            .addClass("flex-row")
+            .append($("span").text("eachNote"), $("span").text("."), this.$propOptionBox, $("span").text(" = ")), $("div").append(this.$code, this.$execute), $("span").text("Snippets"), this.$snippets, $("span").text("Fill each neighbors with step: "), $("div").addClass("flex-row").append(this.$fillDensityInput, this.$fill), this.$fillWarning);
+        this.$fillDensityInput.setValue([0, 1, 4]);
+        this.$execute.onClick(() => {
+            const code = this.$code.getValue();
+            const prop = this.$propOptionBox.value.text;
+            const fn = new Function("val", "note", "return " + code);
+            const sortedNotes = [...this.target].sort((a, b) => TC.gt(a.startTime, b.startTime) ? 1 : -1);
+            const generateOp = {
+                "above": n => new NotePropChangeOperation(n, "above", fn(n.above, n)),
+                "alpha": n => new NotePropChangeOperation(n, "alpha", fn(n.alpha, n)),
+                "endTime": n => new HoldEndTimeChangeOperation(n, fn(n.endTime, n)),
+                "isFake": n => new NotePropChangeOperation(n, "isFake", fn(n.isFake, n)),
+                "judgeSize": n => new NotePropChangeOperation(n, "judgeSize", fn(n.judgeSize, n)),
+                "positionX": n => new NotePropChangeOperation(n, "positionX", fn(n.positionX, n)),
+                "size": n => new NotePropChangeOperation(n, "size", fn(n.size, n)),
+                "speed": n => new NoteSpeedChangeOperation(n, fn(n.speed, n), n.parentNode.parentSeq.parentLine),
+                "startTime": n => new NoteTimeChangeOperation(n, n.parentNode.parentSeq.getNodeOf(fn(n.startTime, n))),
+                "tint": n => new NotePropChangeOperation(n, "tint", fn(n.tint, n)),
+                "type": n => new NotePropChangeOperation(n, "type", fn(n.type, n)),
+                "visibleBeats": n => new NotePropChangeOperation(n, "visibleBeats", fn(n.visibleBeats, n)),
+                "yOffset": n => new NoteYOffsetChangeOperation(n, fn(n.yOffset, n), n.parentNode.parentSeq.parentLine),
+                "tintHitEffects": n => new NotePropChangeOperation(n, "tintHitEffects", fn(n.tintHitEffects, n)),
+            }[prop];
+            editor.operationList.do(new ComplexOperation(...sortedNotes.map((n) => {
+                try {
+                    return generateOp(n);
+                }
+                catch (e) {
+                    console.error(e);
+                    notify(`Error: ${e.message}`);
+                }
+            })));
+        });
+        this.$snippets.whenValueChange((name) => {
+            this.$code.setValue(snippets[name]);
+        });
+        this.$fill.onClick(() => {
+            const step = this.$fillDensityInput.getValue();
+            try {
+                TimeCalculator.validateIp(step);
+            }
+            catch (e) {
+                notify(e.message);
+                return;
+            }
+            if (TimeCalculator.toBeats(step) <= 0) {
+                notify("Step must be positive");
+                return;
+            }
+            const sortedNotes = [...this.target].sort((a, b) => TC.gt(a.startTime, b.startTime) ? 1 : -1);
+            const toBeAdded = [];
+            const fill = (note1, note2) => {
+                const startTime = note1.startTime;
+                const endTime = note2.startTime;
+                const delta = TC.validateIp(TC.sub(endTime, startTime));
+                const positionDelta = note2.positionX - note1.positionX;
+                for (let offset = step; TC.lt(offset, delta); offset = TC.validateIp(TC.add(offset, step))) {
+                    const note = note1.clone(offset);
+                    note.positionX = (TC.toBeats(offset) / TC.toBeats(delta)) * positionDelta + note1.positionX;
+                    toBeAdded.push(note);
+                }
+            };
+            const len = sortedNotes.length;
+            for (let i = 0; i < len - 1; i++) {
+                console.log(i);
+                const note1 = sortedNotes[i];
+                const note2 = sortedNotes[i + 1];
+                fill(note1, note2);
+            }
+            editor.operationList.do(new MultiNoteAddOperation(toBeAdded, editor.judgeLinesEditor.selectedLine));
+        });
         this.$reverse.onClick(() => {
-            editor.operationList.do(new ComplexOperation(...[...this.target].map(n => new NoteValueChangeOperation(n, "positionX", -n.positionX))));
+            editor.operationList.do(new ComplexOperation(...[...this.target].map(n => new NotePropChangeOperation(n, "positionX", -n.positionX))));
         });
         this.$delete.onClick(() => {
             editor.operationList.do(new MultiNoteDeleteOperation(this.target));
         });
     }
     update() {
+        const count = this.target.size;
+        const judgeLineCount = new Set([...this.target].map(n => n.parentNode.parentSeq.parentLine)).size;
+        this.$title.text(`Multi Notes (${numNoun(count, "Note")} from ${numNoun(judgeLineCount, "JudgeLine")})`);
+        if (judgeLineCount > 1) {
+            this.$fillWarning.text("Warning: The selected notes come from different lines, but `Fill` will only fill the selected line.");
+        }
+        else {
+            this.$fillWarning.text("");
+        }
     }
 }
 class MultiNodeEditor extends SideEntityEditor {
     constructor() {
         super();
-        this.$title.text("Multi Nodes");
-        this.$delete = new ZButton("Delete").addClass("destructive");
         this.$reverse = new ZButton("Reverse");
-        this.$body.append(this.$delete, this.$reverse);
+        this.$delete = new ZButton("Delete").addClass("destructive");
+        this.$startEndOptionBox = new ZDropdownOptionBox([
+            "start",
+            "end",
+            "back-to-back",
+            "face-to-face"
+        ].map((v) => new BoxOption(v)));
+        this.$propOptionBox = new ZDropdownOptionBox([
+            "value",
+            "time"
+        ].map((x) => new BoxOption(x)));
+        this.$code = new ZTextArea();
+        this.$execute = new ZButton("Execute");
+        this.$snippets = new ZDropdownOptionBox(Object.keys(snippets).map((n) => new BoxOption(n)))
+            .css("width", "100%");
+        this.$title.text("Multi Nodes");
+        this.$body.append(this.$delete, this.$reverse, $("span")
+            .addClass("flex-row")
+            .append($("span").text("each"), this.$startEndOptionBox, $("span").text("."), this.$propOptionBox, $("span").text(" = ")), $("div").append(this.$code, this.$execute), $("span").text("Snippets"), this.$snippets);
+        this.$execute.onClick(() => {
+            const code = this.$code.getValue();
+            const fn = new Function("val", "node", "return " + code);
+            let sortedNodes = [...this.target].sort((a, b) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
+            const startOrEnd = this.$startEndOptionBox.value.text;
+            if (startOrEnd === "end") {
+                sortedNodes = sortedNodes.map(n => n.next).filter(n => n.type === 2 /* NodeType.MIDDLE */);
+            }
+            else if (startOrEnd === "back-to-back") {
+                const nodes = [];
+                const len = sortedNodes.length;
+                if (len > 0) {
+                    const node = sortedNodes[0];
+                    const end = node.previous;
+                    if (end.type !== 0 /* NodeType.HEAD */) {
+                        nodes.push(end);
+                    }
+                    nodes.push(node);
+                }
+                for (let i = 1; i < len; i++) {
+                    const node = sortedNodes[i];
+                    const end = node.previous;
+                    nodes.push(end);
+                    nodes.push(node);
+                }
+                sortedNodes = nodes;
+            }
+            else if (startOrEnd === "face-to-face") {
+                const nodes = [];
+                const len = sortedNodes.length;
+                for (let i = 0; i < len - 1; i++) {
+                    const node = sortedNodes[i];
+                    const end = node.next;
+                    nodes.push(node);
+                    nodes.push(end);
+                }
+                const node = sortedNodes[len - 1];
+                const end = node.next;
+                nodes.push(node);
+                if (end.type !== 1 /* NodeType.TAIL */) {
+                    nodes.push(end);
+                }
+                sortedNodes = nodes;
+            }
+            const prop = this.$propOptionBox.value.text;
+            editor.operationList.do(new ComplexOperation(...sortedNodes.map((node) => {
+                return prop === "value"
+                    ? new EventNodeValueChangeOperation(node, fn(node.value, node))
+                    : new EventNodeTimeChangeOperation(node, fn(node.time, node));
+            })));
+        });
+        this.$snippets.whenValueChange((name) => {
+            this.$code.setValue(snippets[name]);
+        });
         this.$reverse.onClick(() => {
             editor.operationList.do(new ComplexOperation(...[...this.target].map(n => new EventNodeValueChangeOperation(n, -n.value))));
         });
@@ -5003,6 +5549,7 @@ class MultiNodeEditor extends SideEntityEditor {
 class EventEditor extends SideEntityEditor {
     constructor() {
         super();
+        this.$warning = $("span").addClass("side-editor-warning");
         this.$time = new ZFractionInput();
         this.$value = new ZInputBox();
         this.$normalOuter = $("div");
@@ -5015,7 +5562,7 @@ class EventEditor extends SideEntityEditor {
         this.$templateRight = new ZInputBox().attr("placeholder", "right").setValue("1.0");
         this.$parametric = new ZInputBox();
         this.$bezierEditor = new BezierEditor(window.innerWidth * 0.2);
-        this.$title.text("Event");
+        this.$title.text("EventNode (NULL)");
         this.addClass("event-editor");
         this.$normalOuter.append(this.$easing, this.$normalLeft, this.$normalRight);
         this.$radioTabs = new ZRadioTabs("easing-type", {
@@ -5026,7 +5573,7 @@ class EventEditor extends SideEntityEditor {
         });
         this.$delete = new ZButton("delete").addClass("destructive")
             .onClick(() => editor.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
-        this.$body.append($("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$radioTabs, $("span").text("del"), this.$delete);
+        this.$body.append(this.$warning, $("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$radioTabs, $("span").text("del"), this.$delete);
         this.$time.onChange((t) => {
             editor.operationList.do(new EventNodeTimeChangeOperation(this.target, t));
         });
@@ -5100,8 +5647,18 @@ class EventEditor extends SideEntityEditor {
     update() {
         const eventNode = this.target;
         if (!eventNode) {
+            this.$title.text("EventNode (NULL)");
             return;
         }
+        if (eventNode.parentSeq !== editor.eventCurveEditors.selectedEditor.target) {
+            this.$warning.text("This EventNode does not belong to the selected EventNodeSequence.");
+        }
+        else {
+            this.$warning.text("");
+        }
+        const isBPM = eventNode instanceof BPMStartNode || eventNode instanceof BPMEndNode;
+        const isStart = eventNode instanceof EventStartNode;
+        this.$title.text(`${isBPM ? "BPM" : "Event"}${isStart ? "Start" : "End"}Node (from ${eventNode.parentSeq.id})`);
         this.$time.setValue(eventNode.time);
         this.$value.setValue(eventNode.value + "");
         if (eventNode.innerEasing instanceof NormalEasing) {
@@ -5126,20 +5683,60 @@ class EventEditor extends SideEntityEditor {
         }
     }
 }
+function searchTexture(prefix) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const textures = yield serverApi.queryTextures();
+        if (!textures.includes("line.png")) {
+            textures.push("line.png");
+        }
+        return textures.filter(texture => texture.startsWith(prefix));
+    });
+}
 class JudgeLineInfoEditor extends SideEntityEditor {
     constructor() {
         super();
         this.$father = new ZInputBox("-1");
+        this.$texture = new ZSearchBox(searchTexture);
+        this.$anchor = new ZInputBox("0.5, 0.5");
         this.$group = new ZDropdownOptionBox([new BoxOption("Default")]);
         this.$newGroup = new ZInputBox("");
         this.$createGroup = new ZButton("Create");
         this.$createLine = new ZButton("Create");
+        this.$attachUI = new ZCollapseController(true);
+        this.$rotatesWithFather = new ZSwitch("no", "yes");
         this.$del = new ZButton("Delete").addClass("destructive");
+        this.$setAsBindNote = new ZButton("Set as note binding").addClass("progressive");
+        this.$eventLayerIdInput = new ZArrowInputBox().setValue(0);
+        this.$eventType = new ZDropdownOptionBox(["moveX", "moveY", "rotate", "alpha", "speed"].map(name => new BoxOption(name)));
+        this.$eventNodeSequence = $("div").addClass("flex-row").append(this.$eventLayerIdInput, this.$eventType);
+        this.$newEventSeqName = new ZSearchBox((prefix) => [...editor.chart.sequenceMap.keys()].filter(name => name.startsWith(prefix)));
+        // @ts-ignore
+        this.map$uiAttach = {};
+        const uiNames = ["bar", "combo", "combonumber", "level", "name", "pause", "score"];
+        const arr$element = [];
+        for (const uiName of uiNames) {
+            const $ui = new ZSwitch("Attach", "Detach");
+            $ui.whenClickChange((checked) => {
+                if (!this.target) {
+                    notify("The target line of this editor has been garbage-collected");
+                    return;
+                }
+                if (checked) {
+                    editor.operationList.do(new AttachUIOperation(editor.chart, this.target, uiName));
+                }
+                else {
+                    editor.operationList.do(new DetachUIOperation(editor.chart, uiName));
+                }
+            });
+            arr$element.push($("span").text(uiName), $ui);
+            this.map$uiAttach[uiName] = $ui;
+        }
+        this.$attachUI.attach(...arr$element);
         this.$title.text("Judge Line");
-        this.$body.append($("span").text("Father"), this.$father, $("span").text("Group"), this.$group, $("span").text("New Group"), $("div").append(this.$newGroup, this.$createGroup), $("span").text("New Line"), this.$createLine, $("span").text("del"), this.$del);
+        this.$body.append($("span").text("Father"), this.$father, $("span").text("Texture"), this.$texture, $("span").text("Anchor"), this.$anchor, $("span").text("Group"), this.$group, $("span").text("Attach UI"), this.$attachUI, ...arr$element, $("span").text("Rotates with father"), this.$rotatesWithFather, $("span").text("New Group"), $("div").append(this.$newGroup, this.$createGroup), $("span").text("New Line"), this.$createLine, $("span").text("del"), this.$del, this.$eventNodeSequence, this.$newEventSeqName, this.$setAsBindNote);
         this.$father.whenValueChange((content) => {
             if (!this.target) {
-                notify("GC了");
+                notify("The target of this editor has been garbage-collected");
                 return;
             }
             if (content === "-1") {
@@ -5163,9 +5760,32 @@ class JudgeLineInfoEditor extends SideEntityEditor {
                 editor.operationList.do(new JudgeLineInheritanceChangeOperation(editor.chart, this.target, father));
             }
         });
+        this.$anchor.whenValueChange((content) => {
+            const line = this.target;
+            if (!line) {
+                notify("The target of this editor has been garbage-collected.");
+                return;
+            }
+            const segments = content.split(",");
+            if (segments.length !== 2) {
+                notify("Invalid anchor");
+                return;
+            }
+            const x = parseFloat(segments[0].trim());
+            const y = parseFloat(segments[1].trim());
+            editor.operationList.do(new JudgeLinePropChangeOperation(line, "anchor", [x, y]));
+        });
+        this.$texture.whenValueChange((content) => {
+            const line = this.target;
+            if (!line) {
+                notify("The target of this editor has been garbage-collected.");
+                return;
+            }
+            editor.operationList.do(new JudgeLinePropChangeOperation(line, "texture", content));
+        });
         this.$createGroup.onClick(() => {
             if (!this.target) {
-                notify("GC了");
+                notify("The target of this editor has been garbage-collected");
                 return;
             }
             const name = this.$newGroup.getValue().trim();
@@ -5191,12 +5811,73 @@ class JudgeLineInfoEditor extends SideEntityEditor {
             editor.operationList.do(new JudgeLineCreateOperation(editor.chart, line));
             this.target = line;
         });
+        this.$rotatesWithFather.whenClickChange((checked) => {
+            editor.operationList.do(new JudgeLinePropChangeOperation(this.target, "rotatesWithFather", checked));
+        });
         this.$del.onClick(() => {
             if (!this.target) {
-                notify("GC了");
+                notify("The target of this editor has been garbage-collected");
+                editor.judgeLinesEditor.reflow();
                 return;
             }
             editor.operationList.do(new JudgeLineDeleteOperation(editor.chart, this.target));
+        });
+        this.$setAsBindNote.onClick(() => {
+            const judgeLine = this.target;
+            if (!judgeLine) {
+                notify("The target of this editor has been garbage-collected");
+            }
+            const seq = judgeLine.eventLayers[0].speed;
+            if (seq.head.next === seq.tail.previous) {
+                editor.operationList.do(new EventNodeValueChangeOperation(seq.head.next, 0));
+                notify(`Set the only EventNode of #${judgeLine.id}.0.speed as 0`);
+            }
+            else if (seq.head.next.next.next === seq.tail.previous) {
+                editor.operationList.do(new ComplexOperation(new EventNodeValueChangeOperation(seq.head.next, 0), new EventNodeValueChangeOperation(seq.head.next.next, 0), new EventNodeValueChangeOperation(seq.head.next.next.next, 0)));
+                notify(`Set the only 3 EventNodes of #${judgeLine.id}.0.speed as 0`);
+            }
+            else {
+                notify("Unable to set the speed as 0 for there have been more than 3 EventNodes");
+                return;
+            }
+            const ySeq = judgeLine.eventLayers[0].moveY;
+            if (ySeq.head.next === seq.tail.previous) {
+                editor.operationList.do(new EventNodeValueChangeOperation(seq.head.next, 2000));
+                notify(`Set the only EventNode of #${judgeLine.id}.0.moveY as 2000`);
+            }
+            else if (ySeq.head.next.next.next === ySeq.tail.previous) {
+                editor.operationList.do(new ComplexOperation(new EventNodeValueChangeOperation(ySeq.head.next, 2000), new EventNodeValueChangeOperation(ySeq.head.next.next, 2000), new EventNodeValueChangeOperation(ySeq.head.next.next.next, 2000)));
+                notify(`Set the only 3 EventNodes of #${judgeLine.id}.0.moveY as 2000`);
+            }
+            else {
+                notify("Unable to set the y as 2000 for there have been more than 3 EventNodes");
+            }
+        });
+        this.$newEventSeqName.whenValueChange((name) => {
+            const layer = this.$eventLayerIdInput.getValue();
+            const typeStr = this.$eventType.value.text;
+            const type = EventType[typeStr];
+            if (layer < 0 || layer > 3) {
+                notify("Layer index out of range. Range is [0, 3]");
+                return;
+            }
+            if (name.startsWith("->")) {
+                name = name.substring(2);
+                if (editor.chart.sequenceMap.get(name)) {
+                    notify("Fail to rename for the sequence already exists");
+                }
+                editor.operationList.do(new EventNodeSequenceRenameOperation(this.target.eventLayers[layer][typeStr], name));
+                return;
+            }
+            const ens = editor.chart.sequenceMap.get(name);
+            if (!ens) {
+                notify("No such sequence!");
+            }
+            if (ens.type !== type) {
+                notify("The sequence types did not match!");
+                return;
+            }
+            editor.operationList.do(new JudgeLineENSChangeOperation(this.target, layer, typeStr, ens));
         });
     }
     update() {
@@ -5205,7 +5886,19 @@ class JudgeLineInfoEditor extends SideEntityEditor {
             return;
         }
         this.$father.setValue(judgeLine.father ? judgeLine.father.id + "" : "-1");
+        this.$rotatesWithFather.checked = judgeLine.rotatesWithFather;
         this.updateGroups(editor.chart.judgeLineGroups);
+        this.updateAttach();
+        this.$group.value = this.$group.options.find(option => option.text === judgeLine.group.name);
+        this.$anchor.setValue(judgeLine.anchor.join(", "));
+        this.$texture.value = judgeLine.texture;
+        const layer = judgeLine.eventLayers[this.$eventLayerIdInput.getValue()];
+        if (layer) {
+            const seq = layer[this.$eventType.value.text];
+            if (seq) {
+                this.$newEventSeqName.value = seq.id;
+            }
+        }
     }
     updateGroups(groups) {
         this.$group.replaceWithOptions(groups.map(group => {
@@ -5216,6 +5909,25 @@ class JudgeLineInfoEditor extends SideEntityEditor {
             });
             return option;
         }));
+    }
+    updateAttach() {
+        const chart = editor.chart;
+        for (const uiName of ["bar", "combonumber", "combo", "level", "name", "pause", "score"]) {
+            const attachTarget = chart[`${uiName}Attach`];
+            if (attachTarget === this.target) {
+                this.map$uiAttach[uiName].checked = true;
+                this.map$uiAttach[uiName].disabled = false;
+            }
+            else if (attachTarget === null) {
+                this.map$uiAttach[uiName].checked = false;
+                this.map$uiAttach[uiName].disabled = false;
+            }
+            else {
+                this.map$uiAttach[uiName].checked = false;
+                this.map$uiAttach[uiName].disabled = true;
+                this.map$uiAttach[uiName].text(`Attached to #${attachTarget.id}`); // 神级用法
+            }
+        }
     }
 }
 class UserScriptEditor extends SideEditor {
@@ -5266,15 +5978,61 @@ class UserScriptEditor extends SideEditor {
     }
     update() { }
 }
+class ChartInfoEditor extends SideEditor {
+    constructor() {
+        super();
+        this.$chartTitle = new ZInputBox();
+        this.$level = new ZInputBox();
+        this.$composer = new ZInputBox();
+        this.$charter = new ZInputBox();
+        this.$illustrator = new ZInputBox();
+        this.$chartingTime = $("span").css("textAlign", "center");
+        this.$rpeChartingTime = $("span").css("textAlign", "center");
+        this.$title.text("Chart Info");
+        this.$body.append($("span").text("Title"), this.$chartTitle, $("span").text("Difficulty"), this.$level, $("span").text("Composer"), this.$composer, $("span").text("Charter"), this.$charter, $("span").text("Illustrator"), this.$illustrator, $("span").text("Time spent charting here"), this.$chartingTime, $("span").text("Time spent charting in RPE"), this.$rpeChartingTime);
+        this.$chartTitle.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "name", value));
+        });
+        this.$level.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "level", value));
+        });
+        this.$composer.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "composer", value));
+        });
+        this.$charter.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "charter", value));
+        });
+        this.$illustrator.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "illustrator", value));
+        });
+    }
+    update() {
+        const chart = editor.chart;
+        this.$chartTitle.setValue(chart.name);
+        this.$level.setValue(chart.level);
+        this.$composer.setValue(chart.composer);
+        this.$charter.setValue(chart.charter);
+        this.$illustrator.setValue(chart.illustrator);
+        this.$chartingTime.text(formatTime(chart.chartingTime, 0)); // KPA存分
+        this.$rpeChartingTime.text(formatTime(chart.rpeChartingTime, 0)); // RPE存秒，但是已经转换为分了
+    }
+}
 const pointIsInRect = (x, y, rectTop, rectLeft, width, height) => rectLeft <= x && x <= rectLeft + width
     && rectTop <= y && y <= rectTop + height;
 class SelectionManager {
     constructor() {
+        this.basePriority = 0;
     }
     refresh() {
         this.positions = [];
     }
+    /**
+     *
+     * @param entity 两种形态，一种通过左上角和宽高定义，需要选定区罩住整个矩形，另一种通过中心点、宽高和角度定义，只要罩住中心点
+     * @returns
+     */
     add(entity) {
+        entity.priority += this.basePriority;
         this.positions.push(entity);
         return {
             annotate: (context, canvasX, canvasY) => {
@@ -5341,8 +6099,11 @@ class SelectionManager {
             }
         });
     }
+    setBasePriority(priority) {
+        this.basePriority = priority;
+    }
 }
-// ** TODO: Charting time stats
+const SCOPING_COLOR = "#FAE";
 const eventTypeMap = [
     {
         valueGridSpan: 135,
@@ -5401,10 +6162,10 @@ class EventCurveEditors extends Z {
         this.easingBeats = 0;
         this._selectedLayer = "0";
         this.addClass("event-curve-editors");
-        this.$typeSelect.onChange((val) => {
+        this.$typeSelect.whenValueChange((val) => {
             this.selectedEditor = this[val];
         });
-        this.$layerSelect.onChange((val) => {
+        this.$layerSelect.whenValueChange((val) => {
             if (!(["0", "1", "2", "3", "ex"]).includes(val)) {
                 throw new Error("Invalid layer");
             }
@@ -5414,6 +6175,7 @@ class EventCurveEditors extends Z {
         this.$rangeInput.whenValueChange((content) => {
             if (content === "auto" || content === "") {
                 this.selectedEditor.autoRangeEnabled = true;
+                return;
             }
             const parts = content.split(",");
             if (parts.length !== 2) {
@@ -5435,7 +6197,7 @@ class EventCurveEditors extends Z {
             "Start",
             "End"
         ].map((s) => new BoxOption(s)), true)
-            .onChange((val) => {
+            .whenValueChange((val) => {
             for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
                 this[type].newNodeState = NewNodeState["controls" + val];
             }
@@ -5475,7 +6237,7 @@ class EventCurveEditors extends Z {
         this.nodesSelection = new Set();
     }
     init() {
-        const barHeight = this.$bar.clientHeight;
+        const barHeight = this.$bar.clientHeight + 8;
         for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
             this[type] = new EventCurveEditor(EventType[type], this.parent.clientHeight - barHeight, this.parent.clientWidth, this);
             this[type].active = false;
@@ -5525,7 +6287,7 @@ class EventCurveEditors extends Z {
         this.draw();
     }
     updateAdjustmentOptions(editor) {
-        this.$rangeInput.setValue(editor.autoRangeEnabled ? "auto" : editor.valueRange.join("，"));
+        this.$rangeInput.setValue(editor.autoRangeEnabled ? "auto" : editor.valueRange.join(","));
     }
 }
 var EventCurveEditorState;
@@ -5610,6 +6372,7 @@ function divideOrMul(gridSpan, maximum) {
                 return gridSpan / i;
             }
         }
+        return gridSpan;
     }
 }
 class EventCurveEditor {
@@ -5665,6 +6428,7 @@ class EventCurveEditor {
         this.innerHeight = this.canvas.height - this.padding * 2;
         this.innerWidth = this.canvas.width - this.padding * 2;
         this.context = this.canvas.getContext("2d");
+        this.context.font = "16px Phigros";
         this.timeSpan = 4;
         // this.halfCent = this.halfRange * 100;
         this.valueRange = config.valueRange;
@@ -5715,7 +6479,7 @@ class EventCurveEditor {
             this.upHandler(event);
             this.draw();
         });
-        parent.$selectOption.onChange((v) => {
+        parent.$selectOption.whenValueChange((v) => {
             this.selectState = SelectState[v];
             if (this.selectState === SelectState.none) {
                 this.state = EventCurveEditorState.select;
@@ -5789,7 +6553,7 @@ class EventCurveEditor {
     updateMatrix() {
         this.valueRatio = this.innerHeight / lengthOf(this.valueRange);
         this.timeRatio = this.innerWidth / this.timeSpan;
-        const { timeSpan: timeRange, valueRange, timeRatio, valueRatio } = this;
+        const { valueRange, timeRatio, valueRatio } = this;
         this.matrix = identity.scale(timeRatio, -valueRatio).translate(0, -medianOf(valueRange));
         this.invertedMatrix = this.matrix.invert();
         // console.log(this.matrix);
@@ -5802,8 +6566,6 @@ class EventCurveEditor {
     }
     downHandler(event) {
         var _a;
-        const { width, height } = this.canvas;
-        const { padding } = this;
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
         const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
         const coord = canvasCoord.mul(this.invertedMatrix);
@@ -5930,6 +6692,7 @@ class EventCurveEditor {
             context.fillText(value + "", -innerWidth / 2, positionY);
         }
         context.strokeStyle = rgb(...this.timeGridColor);
+        context.lineWidth = 3;
         const stopBeats = Math.ceil((beats + this.timeSpan / 2) / timeGridSpan) * timeGridSpan;
         const startBeats = Math.ceil((beats - this.timeSpan / 2) / timeGridSpan - 1) * timeGridSpan;
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
@@ -5950,23 +6713,25 @@ class EventCurveEditor {
         context.strokeStyle = "#EEE";
     }
     draw(beats) {
+        var _a;
         if (!this.target) {
             return;
         }
         beats = beats || this.lastBeats || 0;
         this.updateMatrix();
-        const { height, width } = this.canvas;
-        const { timeRatio, valueRatio, context, selectionManager, matrix } = this;
+        const { context, selectionManager, matrix } = this;
         selectionManager.refresh();
         this.drawCoordination(beats);
         context.save();
         context.fillStyle = "#EEE";
+        context.font = "16px phigros";
         context.fillText("State: " + EventCurveEditorState[this.state], 10, -30);
         context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10);
         context.fillText("Sequence: " + this.target.id, 10, -50);
-        context.fillText(`Last Frame Took: ${shortenFloat(editor.renderingTime, 2) || 'N/A'}ms, fps: ${Math.round(1000 / editor.renderingTime)}`, 10, -70);
-        if (this.pointedBeats) {
-            context.fillText(`pointedTime: ${this.pointedBeats}:${this.beatFraction}:${editor.timeDivisor}`, 10, 10);
+        context.fillText(`fps: ${shortenFloat(editor.frameRate, 2)}`, 10, -70);
+        context.fillText(`Time: ${shortenFloat(editor.player.time, 4)}s`, 10, 40);
+        if (typeof this.pointedBeats === "number") {
+            context.fillText(`pointedTime: ${this.pointedBeats}:${this.beatFraction}/${editor.timeDivisor}`, 10, 10);
         }
         if (this.canvasPoint) {
             this.context.fillText(`Cursor: ${this.canvasPoint.x}, ${this.canvasPoint.y}`, 10, -90);
@@ -5974,14 +6739,57 @@ class EventCurveEditor {
         context.restore();
         const startBeats = beats - this.timeSpan / 2;
         const endBeats = beats + this.timeSpan / 2;
-        let previousEndNode = this.target.getNodeAt(startBeats < 0 ? 0 : startBeats).previous || this.target.head; // 有点奇怪的操作
-        let previousTime = "heading" in previousEndNode ? 0 : TimeCalculator.toBeats(previousEndNode.time);
         // 该数组用于自动调整网格
         const valueArray = [];
+        const line = (_a = editor.judgeLinesEditor) === null || _a === void 0 ? void 0 : _a.selectedLine;
+        if (line &&
+            [EventType.moveX, EventType.moveY, EventType.alpha, EventType.rotate, EventType.speed].includes(this.type)
+            && !line.group.isDefault()) {
+            const group = line.group;
+            const parent = this.parentEditorSet;
+            context.save();
+            context.font = "16px Phigros";
+            const len = group.judgeLines.length;
+            for (let i = 0; i < len; i++) {
+                const judgeLine = group.judgeLines[i];
+                if (judgeLine === line) {
+                    continue;
+                }
+                const sequence = judgeLine.eventLayers[parent.$layerSelect.value.text][EventType[this.type]];
+                if (!sequence) {
+                    continue;
+                }
+                context.strokeStyle = context.fillStyle = `hsl(${i / len * 360}, 80%, 75%)`;
+                context.globalAlpha = 1;
+                context.fillText(`${judgeLine.id}`, i * 14, 60);
+                context.globalAlpha = 0.5;
+                this.drawSequence(sequence, valueArray, beats, startBeats, endBeats, matrix);
+            }
+            context.restore();
+        }
+        selectionManager.setBasePriority(1);
+        this.drawSequence(this.target, valueArray, beats, startBeats, endBeats, matrix);
+        selectionManager.setBasePriority(0);
+        this.adjust(valueArray);
+        if (this.state === EventCurveEditorState.selectingScope) {
+            const { startingCanvasPoint, canvasPoint } = this;
+            context.save();
+            context.lineWidth = 3;
+            context.strokeStyle = SCOPING_COLOR;
+            context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
+            context.restore();
+        }
+        this.lastBeats = beats;
+    }
+    drawSequence(sequence, valueArray, beats, startBeats, endBeats, matrix) {
+        const { selectionManager, context } = this;
+        const { width } = this.canvas;
+        let previousEndNode = sequence.getNodeAt(startBeats < 0 ? 0 : startBeats).previous || sequence.head; // 有点奇怪的操作
+        let previousTime = previousEndNode.type === 0 /* NodeType.HEAD */ ? 0 : TimeCalculator.toBeats(previousEndNode.time);
         while (previousTime < endBeats) {
             const startNode = previousEndNode.next;
             const endNode = startNode.next;
-            if ("tailing" in endNode) {
+            if (endNode.type === 1 /* NodeType.TAIL */) {
                 break;
             }
             const startTime = TimeCalculator.toBeats(startNode.time);
@@ -6033,7 +6841,7 @@ class EventCurveEditor {
             previousEndNode = endNode;
             previousTime = endTime;
         }
-        if ("tailing" in previousEndNode.next.next) {
+        if (previousEndNode.next.next.type === 1 /* NodeType.TAIL */) {
             const lastStart = previousEndNode.next;
             const startTime = TimeCalculator.toBeats(lastStart.time);
             const startValue = lastStart.value;
@@ -6058,15 +6866,6 @@ class EventCurveEditor {
                 priority: 1
             }).annotate(context, startX, topY);
         }
-        this.adjust(valueArray);
-        if (this.state === EventCurveEditorState.selectingScope) {
-            const { startingCanvasPoint, canvasPoint } = this;
-            context.save();
-            context.strokeStyle = "#84F";
-            context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
-            context.restore();
-        }
-        this.lastBeats = beats;
     }
     adjust(values) {
         if (this.state !== EventCurveEditorState.select) {
@@ -6139,8 +6938,8 @@ class EventCurveEditor {
             this.target = seq;
         }
         else {
-            this.target = EventNodeSequence.newSeq(this.type, editor.chart.getEffectiveBeats());
-            this.target.id = `#${line.id}.${index}.${EventType[this.type]}`;
+            this.target = editor.chart.createEventNodeSequence(this.type, `#${this.target.id}.${index}.${EventType[this.type]}`);
+            notify("Created a new EventNodeSequence. This is not an operation, and thus you cannot undo.");
         }
     }
     paste() {
@@ -6175,9 +6974,6 @@ class EventCurveEditor {
 const DRAWS_NN = true;
 const COLOR_1 = "#66ccff";
 const COLOR_2 = "#ffcc66";
-const HEAD = 1;
-const BODY = 2;
-const TAIL = 3;
 var NotesEditorState;
 (function (NotesEditorState) {
     NotesEditorState[NotesEditorState["select"] = 0] = "select";
@@ -6219,54 +7015,69 @@ class NotesEditor extends Z {
                     lists[name] = null;
                     name = t;
                     lists[name] = list;
-                }, () => this.targetTree = list);
+                }, () => this.targetNNList = list);
                 options.push(option);
             }
         }
-        this.$optionBox.replaceWithOptions(options);
-        if (this.targetTree) {
-            const name = this.targetTree.id || "#1";
+        this.$listOption.replaceWithOptions(options);
+        if (this.targetNNList) {
+            const name = this.targetNNList.id || "#1";
             options.forEach((option) => {
                 if (option.text === name) {
-                    this.$optionBox.value = option;
+                    this.$listOption.value = option;
                 }
             });
-            if (this.targetTree instanceof HNList) {
+            if (this.targetNNList instanceof HNList) {
                 if (line.hnLists.has(name)) {
-                    this.targetTree = line.hnLists.get(name);
+                    this.targetNNList = line.hnLists.get(name);
                 }
                 else {
-                    this.targetTree = null;
-                    this.$optionBox.value = this.allOption;
+                    this.targetNNList = null;
+                    this.$listOption.value = this.allOption;
                 }
             }
             else {
                 if (line.nnLists.has(name)) {
-                    this.targetTree = line.nnLists.get(name);
+                    this.targetNNList = line.nnLists.get(name);
                 }
                 else {
-                    this.targetTree = null;
-                    this.$optionBox.value = this.allOption;
+                    this.targetNNList = null;
+                    this.$listOption.value = this.allOption;
                 }
             }
         }
     }
     constructor(editor) {
         super("div");
+        this.noteAbove = true;
+        this.attachableTimes = [];
+        this.timeMap = new Map();
+        this.showsNNNListAttachable = true;
+        this.allOption = new EditableBoxOption("*", (_s, t) => { }, () => this.targetNNList = null, () => undefined, false);
+        this.$listOption = new ZEditableDropdownOptionBox([this.allOption]);
+        this.$typeOption = new ZDropdownOptionBox(["tap", "hold", "flick", "drag"].map((v) => new BoxOption(v)));
+        this.$noteAboveSwitch = new ZSwitch("below", "above");
+        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)));
+        this.$copyButton = new ZButton("Copy");
+        this.$pasteButton = new ZButton("Paste");
+        this.$editButton = new ZSwitch("Edit");
+        this.$timeSpanInput = new ZInputBox("2").attr("placeholder", "TimeSpan").attr("size", "3");
+        this.$xLineCountInput = new ZArrowInputBox(10).attr("placeholder", "TimeLineCount").attr("size", "3");
+        this.$showsNNNListAttachable = new ZSwitch("NNNMark");
+        this.defaultConfig = {
+            alpha: 255,
+            isFake: 0,
+            size: 1.0,
+            speed: 1.0,
+            absoluteYOffset: 0,
+            visibleBeats: undefined
+        };
         this.addClass("notes-editor");
         this.selectionManager = new SelectionManager();
-        this.allOption = new EditableBoxOption("*", (_s, t) => { }, () => this.targetTree = null, () => undefined, false);
         this.$statusBar = $("div").addClass("notes-editor-status-bar");
         this.append(this.$statusBar);
-        this.$optionBox = new ZEditableDropdownOptionBox([this.allOption]);
-        this.$typeOption = new ZDropdownOptionBox(arrayForIn([
-            "tap", "hold", "flick", "drag"
-        ], (v) => new BoxOption(v))).onChange(() => this.noteType = NoteType[this.$typeOption.value.text]);
-        this.$noteAboveOption = new ZDropdownOptionBox([new BoxOption("above"), new BoxOption("below")])
-            .onChange(() => this.noteAbove = this.$noteAboveOption.value.text === "above");
-        this.notesSelection = new Set();
-        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)))
-            .onChange((v) => {
+        this.$typeOption.whenValueChange(() => this.noteType = NoteType[this.$typeOption.value.text]);
+        this.$selectOption.whenValueChange((v) => {
             this.selectState = SelectState[v];
             if (this.selectState === SelectState.none) {
                 this.state = NotesEditorState.select;
@@ -6275,23 +7086,32 @@ class NotesEditor extends Z {
                 this.state = NotesEditorState.selectScope;
             }
         });
-        this.noteAbove = true;
-        this.$copyButton = new ZButton("Copy")
-            .onClick(() => {
+        this.$noteAboveSwitch.whenClickChange((checked) => this.noteAbove = checked);
+        this.$noteAboveSwitch.checked = true;
+        this.notesSelection = new Set();
+        this.$copyButton.onClick(() => {
             this.copy();
         });
-        this.$pasteButton = new ZButton("Paste")
-            .onClick(() => {
+        this.$pasteButton.onClick(() => {
             this.paste();
         });
-        this.$editButton = new ZSwitch("Edit")
-            .whenClickChange((checked) => {
+        this.$editButton.whenClickChange((checked) => {
             this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
         });
-        this.$statusBar.append(this.$optionBox, this.$typeOption, this.$noteAboveOption, this.$editButton, this.$copyButton, this.$pasteButton, this.$selectOption);
+        this.$timeSpanInput.whenValueChange(() => {
+            this.timeSpan = this.$timeSpanInput.getNum();
+        });
+        this.$xLineCountInput.whenValueChange((num) => {
+            this.positionGridSpan = 1350 / num;
+        });
+        this.$showsNNNListAttachable.whenClickChange((checked) => {
+            this.showsNNNListAttachable = checked;
+        });
+        this.$showsNNNListAttachable.checked = true;
+        this.$statusBar.append(this.$listOption, this.$timeSpanInput, this.$xLineCountInput, this.$typeOption, this.$noteAboveSwitch, this.$editButton, this.$copyButton, this.$pasteButton, this.$selectOption, this.$showsNNNListAttachable);
         this.editor = editor;
         this.padding = 10;
-        this.targetTree = null;
+        this.targetNNList = null;
         this.state = NotesEditorState.select;
         this.wasEditing = false;
         this.positionBasis = 0;
@@ -6313,12 +7133,9 @@ class NotesEditor extends Z {
             // const {padding} = this;
             this.pointedPositionX = Math.round((x) / this.positionGridSpan) * this.positionGridSpan;
             const accurateBeats = y + this.lastBeats;
-            this.pointedBeats = Math.floor(accurateBeats);
-            this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor);
-            if (this.beatFraction === editor.timeDivisor) {
-                this.pointedBeats += 1;
-                this.beatFraction = 0;
-            }
+            const attached = computeAttach(this.attachableTimes, accurateBeats);
+            const timeT = this.timeMap.get(attached);
+            this.pointedTime = timeT;
             switch (this.state) {
                 case NotesEditorState.selecting:
                     console.log("det");
@@ -6327,8 +7144,7 @@ class NotesEditor extends Z {
                         console.warn("Unexpected error: selected note does not exist");
                         break;
                     }
-                    const timeT = [this.pointedBeats, this.beatFraction, editor.timeDivisor];
-                    editor.operationList.do(new NoteValueChangeOperation(this.selectedNote, "positionX", this.pointedPositionX));
+                    editor.operationList.do(new NotePropChangeOperation(this.selectedNote, "positionX", this.pointedPositionX));
                     if (this.selectingTail) {
                         editor.operationList.do(new HoldEndTimeChangeOperation(this.selectedNote, timeT));
                     }
@@ -6351,6 +7167,7 @@ class NotesEditor extends Z {
         });
         const map = { q: NoteType.tap, w: NoteType.drag, e: NoteType.flick, r: NoteType.hold };
         window.addEventListener("keydown", (e) => {
+            var _a;
             console.log("Key down:", e.key);
             if (!this.mouseIn) {
                 return;
@@ -6371,39 +7188,28 @@ class NotesEditor extends Z {
                 case "e":
                 case "r":
                     const noteType = map[e.key.toLowerCase()];
-                    const { beatFraction, pointedBeats } = this;
-                    const startTime = [pointedBeats, beatFraction, editor.timeDivisor];
-                    const endTime = this.noteType === NoteType.hold ? [pointedBeats + 1, 0, 1] : [...startTime];
-                    const note = new Note({
+                    const startTime = this.pointedTime;
+                    const endTime = this.noteType === NoteType.hold ? [startTime[0] + 1, 0, 1] : [...startTime];
+                    const createOptions = {
                         endTime: endTime,
                         startTime: startTime,
-                        visibleTime: 99999,
                         positionX: this.pointedPositionX,
-                        alpha: 255,
                         above: this.noteAbove ? 1 : 0,
-                        isFake: 0,
-                        size: 1.0,
-                        speed: 1.0,
-                        type: noteType,
-                        yOffset: 0
-                    });
+                        speed: ((_a = this.targetNNList) === null || _a === void 0 ? void 0 : _a.speed) || undefined,
+                        type: noteType
+                    };
+                    extend(createOptions, this.defaultConfig);
+                    const note = Note.fromKPAJSON(createOptions, null); // 这里只能用visibleBeats创建，因此不需要tc
                     // this.editor.chart.getComboInfoEntity(startTime).add(note)
                     this.editor.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                     break;
             }
         });
-        /*
-        window.addEventListener("resize", () => {
-            const {clientHeight: outerHeight, clientWidth: outerWidth} = editor.$preview.element;
-            const {clientHeight, clientWidth} = editor.player.canvas;
-            this.canvas.width = outerWidth - clientWidth;
-            this.canvas.height = outerHeight;
-        });
-        //*/
         this.timeGridColor = [120, 255, 170];
         this.positionGridColor = [255, 170, 120];
     }
     downHandler(event) {
+        var _a;
         const { width, height } = this.canvas;
         // console.log(width, height)
         const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
@@ -6427,22 +7233,18 @@ class NotesEditor extends Z {
                 this.wasEditing = false;
                 break;
             case NotesEditorState.edit:
-                const { beatFraction, pointedBeats } = this;
-                const startTime = [pointedBeats, beatFraction, editor.timeDivisor];
-                const endTime = this.noteType === NoteType.hold ? [pointedBeats + 1, 0, 1] : [...startTime];
-                const note = new Note({
+                const startTime = this.pointedTime;
+                const endTime = this.noteType === NoteType.hold ? [startTime[0] + 1, 0, 1] : [...startTime];
+                const createOptions = {
                     endTime: endTime,
                     startTime: startTime,
-                    visibleTime: 99999,
                     positionX: this.pointedPositionX,
-                    alpha: 255,
                     above: this.noteAbove ? 1 : 0,
-                    isFake: 0,
-                    size: 1.0,
-                    speed: 1.0,
-                    type: this.noteType,
-                    yOffset: 0
-                });
+                    speed: ((_a = this.targetNNList) === null || _a === void 0 ? void 0 : _a.speed) || undefined,
+                    type: this.noteType
+                };
+                extend(createOptions, this.defaultConfig);
+                const note = Note.fromKPAJSON(createOptions, null); // 这里只能用visibleBeats创建，因此不需要tc
                 // this.editor.chart.getComboInfoEntity(startTime).add(note)
                 this.editor.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                 this.selectedNote = note;
@@ -6536,7 +7338,7 @@ class NotesEditor extends Z {
         const { context, canvas } = this;
         const { width: canvasWidth, height: canvasHeight } = canvas;
         // console.log(canvasWidth, canvasHeight)
-        const { positionGridSpan, positionRatio, positionSpan: positionRange, positionBasis, timeGridSpan, timeSpan, timeRatio, padding, pointedBeats, beatFraction } = this;
+        const { positionGridSpan, positionRatio, positionSpan: positionRange, positionBasis, timeGridSpan, timeSpan, timeRatio, padding, } = this;
         const width = canvasWidth - padding * 2;
         const height = canvasHeight - padding * 2;
         context.fillStyle = "#333";
@@ -6546,46 +7348,92 @@ class NotesEditor extends Z {
         context.strokeStyle = "#EEE";
         // 基线
         drawLine(context, -canvasWidth / 2, 0, canvasWidth / 2, 0);
+        context.fillStyle = "#EEE6";
+        context.fillText(`KipPhiApparatus v${VERSION_STRING}`, -width / 2, -50);
+        context.fillText("by Zes-Minkey-Young", -width / 2, -30);
+        context.fillText("MIT Licensed", -width / 2, -10);
         context.fillStyle = "#EEE";
         context.fillText("State:" + NotesEditorState[this.state], 0, -height + 20);
-        if (pointedBeats)
-            context.fillText(`PointedTime: ${pointedBeats}:${beatFraction}/${this.editor.timeDivisor}`, 0, -height + 70);
-        if (this.targetTree && this.targetTree.timeRanges) {
-            context.fillText("Range:" + arrayForIn(this.targetTree.timeRanges, (range) => range.join("-")).join(","), -100, -height + 50);
+        const pointedTime = this.pointedTime;
+        if (pointedTime)
+            context.fillText(`PointedTime: ${pointedTime[0]}:${pointedTime[1]}/${pointedTime[2]}`, 0, -height + 70);
+        if (this.targetNNList && this.targetNNList.timeRanges) {
+            context.fillText("Range:" + arrayForIn(this.targetNNList.timeRanges, (range) => range.join("-")).join(","), -100, -height + 50);
         }
         context.restore();
         // 绘制x坐标线
         // 计算上下界
         const upperEnd = Math.ceil((width / 2 - positionBasis) / positionGridSpan / positionRatio) * positionGridSpan;
         const lowerEnd = Math.ceil((-width / 2 - positionBasis) / positionGridSpan / positionRatio) * positionGridSpan;
-        context.strokeStyle = rgb(...this.positionGridColor);
+        context.strokeStyle = context.fillStyle = rgb(...this.positionGridColor);
         context.lineWidth = 1;
-        console.log(upperEnd, lowerEnd);
-        // debugger;
+        context.textAlign = "center";
+        let odd = true;
         for (let value = lowerEnd; value < upperEnd; value += positionGridSpan) {
             const positionX = value * positionRatio + positionBasis;
             drawLine(context, positionX, -height + padding, positionX, 0);
-            context.fillStyle = rgb(...this.positionGridColor);
-            context.fillText(value + "", positionX, -height + padding);
+            if (odd) {
+                context.fillText(Math.round(value) + "", positionX, -height + padding);
+            }
+            odd = !odd;
             // debugger
         }
+        context.textAlign = "left";
         context.strokeStyle = rgb(...this.timeGridColor);
         // 绘制时间线
         const startBeats = Math.floor(beats);
         const stopBeats = Math.ceil(beats + timeSpan);
+        context.lineWidth = 3;
+        const attachableTimes = [];
+        const map = new Map();
+        const timeDivisor = editor.timeDivisor;
         for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
             const positionY = (time - beats) * timeRatio;
             drawLine(context, -width / 2, -positionY, width / 2, -positionY);
             context.save();
             context.fillStyle = rgb(...this.timeGridColor);
-            context.fillText(time + "", -width / 2, -positionY);
+            context.fillText(time + "", -width / 2, -positionY - 4);
+            attachableTimes.push(time);
+            map.set(time, [time, 0, 1]);
             context.lineWidth = 1;
-            for (let i = 1; i < editor.timeDivisor; i++) {
-                const minorPosY = (time + i / editor.timeDivisor - beats) * timeRatio;
+            for (let i = 1; i < timeDivisor; i++) {
+                const minorBeats = time + i / timeDivisor;
+                const minorPosY = (minorBeats - beats) * timeRatio;
+                map.set(minorBeats, [time, i, timeDivisor]);
+                attachableTimes.push(minorBeats);
                 drawLine(context, -width / 2, -minorPosY, width / 2, -minorPosY);
             }
             context.restore();
         }
+        this.attachableTimes = attachableTimes;
+        this.timeMap = map;
+        if (this.showsNNNListAttachable) {
+            const nnnList = this.editor.chart.nnnList;
+            this.lookList(nnnList, startBeats, stopBeats, beats);
+        }
+    }
+    lookList(nnnList, startBeats, stopBeats, beats) {
+        const startNode = nnnList.getNodeAt(startBeats);
+        const endNode = nnnList.getNodeAt(stopBeats);
+        const { attachableTimes, timeMap, context, timeRatio } = this;
+        const width = this.canvas.width - 2 * this.padding;
+        context.save();
+        context.setLineDash([10, 10]);
+        context.lineWidth = 2;
+        context.strokeStyle = "#5DF";
+        for (let node = startNode; node !== endNode; node = node.next) {
+            const time = node.startTime;
+            const nodeBeats = TC.toBeats(time);
+            const posY = (nodeBeats - beats) * timeRatio;
+            drawLine(context, -width / 2, -posY, width / 2, -posY);
+            if (timeMap.has(nodeBeats)) {
+                continue;
+            }
+            timeMap.set(nodeBeats, time);
+            attachableTimes.push(nodeBeats);
+        }
+        attachableTimes.sort((a, b) => a - b);
+        context.restore();
     }
     draw(beats) {
         beats = beats || this.lastBeats || 0;
@@ -6593,31 +7441,53 @@ class NotesEditor extends Z {
         this.selectionManager.refresh();
         const { context, canvas } = this;
         const { width: canvasWidth, height: canvasHeight } = canvas;
-        const { positionGridSpan, positionRatio, positionSpan: positionRange, positionBasis, timeGridSpan, timeSpan: timeRange, timeRatio, padding } = this;
+        const { timeSpan: timeRange, timeRatio, padding } = this;
         const width = canvasWidth - padding * 2;
         const height = canvasHeight - padding * 2;
         this.drawCoordination(beats);
-        if (this.targetTree) {
-            this.drawNNList(this.targetTree, beats);
-        }
-        else {
+        const renderLine = (line) => {
             // Hold first, so that drag/flicks can be seen
-            for (const lists of [this.target.hnLists, this.target.nnLists]) {
+            for (const lists of [line.hnLists, line.nnLists]) {
                 for (const [_, list] of lists) {
                     this.drawNNList(list, beats);
                 }
             }
+        };
+        const line = this.target;
+        const group = line.group;
+        if (!this.targetNNList
+            && !group.isDefault()) {
+            context.save();
+            context.font = "16px Phigros";
+            context.globalAlpha = 0.5;
+            const len = group.judgeLines.length;
+            for (let i = 0; i < len; i++) {
+                const judgeLine = group.judgeLines[i];
+                if (judgeLine === line) {
+                    continue;
+                }
+                renderLine(judgeLine);
+            }
+            context.restore();
+        }
+        if (this.targetNNList) {
+            this.drawNNList(this.targetNNList, beats);
+        }
+        else {
+            this.selectionManager.setBasePriority(1);
+            renderLine(this.target);
+            this.selectionManager.setBasePriority(0);
         }
         // 绘制侧边音符节点标识
-        if (DRAWS_NN && this.targetTree) {
+        if (DRAWS_NN && this.targetNNList) {
             context.save();
             context.lineWidth = 3;
-            const jump = this.targetTree.jump;
+            const jump = this.targetNNList.jump;
             const averageBeats = jump.averageBeats;
             const start = Math.floor(beats / averageBeats);
             const end = Math.ceil((beats + timeRange) / averageBeats);
             const array = jump.array;
-            const array2 = this.targetTree instanceof HNList ? this.targetTree.holdTailJump.array : null;
+            const array2 = this.targetNNList instanceof HNList ? this.targetNNList.holdTailJump.array : null;
             let lastNode = null;
             let color = COLOR_1;
             const minorAverageBeats = jump.averageBeats / MINOR_PARTS;
@@ -6637,7 +7507,7 @@ class NotesEditor extends Z {
                         if (node !== lastNode) {
                             switchColor();
                             lastNode = node;
-                            context.fillText("tailing" in node ? "Tail" : node.id.toString(), x - 30, y - j * minorAverageBeats * timeRatio);
+                            context.fillText(node.type === 1 /* NodeType.TAIL */ ? "Tail" : node.id.toString(), x - 30, y - j * minorAverageBeats * timeRatio);
                         }
                         drawLine(context, x - 4, y - j * minorAverageBeats * timeRatio, x, y - (j + 1) * minorAverageBeats * timeRatio + 5);
                     }
@@ -6647,7 +7517,7 @@ class NotesEditor extends Z {
                         switchColor();
                         lastNode = scale;
                     }
-                    context.fillText("tailing" in scale ? "Tail" : scale.id.toString(), x - 30, y);
+                    context.fillText(scale.type === 1 /* NodeType.TAIL */ ? "Tail" : scale.id.toString(), x - 30, y);
                     drawLine(context, x - 10, y, x + 10, y - averageBeats * timeRatio + 5);
                 }
             }
@@ -6665,7 +7535,7 @@ class NotesEditor extends Z {
                             if (node !== lastNode) {
                                 switchColor();
                                 lastNode = node;
-                                context.fillText("tailing" in node ? "Tail" : `${node.id} (${timeToString(node.startTime)}-${timeToString(node.endTime)})`, x2 + 10, y - j * minorAverageBeats * timeRatio);
+                                context.fillText(node.type === 1 /* NodeType.TAIL */ ? "Tail" : `${node.id} (${timeToString(node.startTime)}-${timeToString(node.endTime)})`, x2 + 10, y - j * minorAverageBeats * timeRatio);
                             }
                             drawLine(context, x2 - 4, y - j * minorAverageBeats * timeRatio, x2, y - (j + 1) * minorAverageBeats * timeRatio + 5);
                         }
@@ -6675,7 +7545,7 @@ class NotesEditor extends Z {
                             switchColor();
                             lastNode = scale;
                         }
-                        context.fillText("tailing" in scale ? "Tail" : `${scale.id} (${timeToString(scale.startTime)}-${timeToString(scale.endTime)})`, x2 + 10, y);
+                        context.fillText(scale.type === 1 /* NodeType.TAIL */ ? "Tail" : `${scale.id} (${timeToString(scale.startTime)}-${timeToString(scale.endTime)})`, x2 + 10, y);
                         drawLine(context, x2 - 10, y, x2 + 10, y - averageBeats * timeRatio + 5);
                     }
                 }
@@ -6684,7 +7554,8 @@ class NotesEditor extends Z {
         if (this.state === NotesEditorState.selectingScope) {
             const { startingCanvasPoint, canvasPoint } = this;
             context.save();
-            context.strokeStyle = "#84F";
+            context.lineWidth = 3;
+            context.strokeStyle = SCOPING_COLOR;
             context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
             context.restore();
         }
@@ -6694,11 +7565,12 @@ class NotesEditor extends Z {
     drawNNList(tree, beats) {
         const timeRange = this.timeSpan;
         let noteNode = tree.getNodeAt(beats, true);
-        if ("tailing" in noteNode) {
+        if (noteNode.type === 1 /* NodeType.TAIL */) {
             return;
         }
-        while (!("tailing" in noteNode) && TimeCalculator.toBeats(noteNode.startTime) < beats + timeRange) {
+        while (!(noteNode.type === 1 /* NodeType.TAIL */) && TimeCalculator.toBeats(noteNode.startTime) < beats + timeRange) {
             const notes = noteNode.notes, length = notes.length;
+            // 记录每个positionX处的Note数量
             const posMap = new Map();
             for (let i = 0; i < length; i++) {
                 const note = notes[i];
@@ -6712,14 +7584,7 @@ class NotesEditor extends Z {
     }
     drawNote(beats, note, isTruck, nth) {
         const context = this.context;
-        const { 
-        //positionGridSpan,
-        positionRatio, 
-        //positionSpan: positionRange,
-        //positionBasis,
-        //timeGridSpan,
-        //timeSpan: timeRange,
-        timeRatio, padding, matrix } = this;
+        const { timeRatio, padding, matrix } = this;
         const start = TimeCalculator.toBeats(note.startTime) - beats;
         const end = TimeCalculator.toBeats(note.endTime) - beats;
         const { x: posX, y: posY } = new Coordinate(note.positionX, start).mul(matrix);
@@ -6727,6 +7592,7 @@ class NotesEditor extends Z {
         const isHold = note.type === NoteType.hold;
         let rad;
         if (nth !== 0) {
+            // 一尺之棰，日取其半，万世不竭
             rad = Math.PI * (1 - Math.pow(2, -nth));
             context.save();
             context.translate(posX, posY);
@@ -6795,18 +7661,18 @@ class NotesEditor extends Z {
     }
     paste() {
         const { clipboard, lastBeats } = this;
-        const { timeDivisor } = this.editor;
         if (!clipboard || clipboard.size === 0) {
             return;
         }
         if (!lastBeats) {
             notify("Have not rendered a frame");
+            return;
         }
         const notes = [...clipboard];
         notes.sort((a, b) => TimeCalculator.gt(a.startTime, b.startTime) ? 1 : -1);
         const startTime = notes[0].startTime;
         // const portions: number = Math.round(timeDivisor * lastBeats);
-        const dest = [this.pointedBeats, this.beatFraction, timeDivisor];
+        const dest = this.pointedTime;
         const offset = TimeCalculator.sub(dest, startTime);
         const newNotes = notes.map(n => n.clone(offset));
         this.editor.operationList.do(new MultiNoteAddOperation(newNotes, this.target));
@@ -6837,7 +7703,7 @@ class JudgeLinesEditor extends Z {
         this.chart = editor.chart;
         this.editor = editor;
         this.element = element;
-        this.orderedLayout();
+        this.reflow(JudgeLinesEditorLayoutType.ordered);
     }
     get selectedLine() {
         return this._selectedLine;
@@ -6852,14 +7718,22 @@ class JudgeLinesEditor extends Z {
         }
         this._selectedLine = line;
         this.editor.notesEditor.target = line;
+        if (this.editor.judgeLineInfoEditor) {
+            this.editor.judgeLineInfoEditor.target = line;
+        }
         this.editor.eventCurveEditors.changeTarget(line);
         const editr = this.editors.get(line);
         editr.addClass("judge-line-editor-selected");
         this.editor.player.greenLine = line.id;
         this.editor.eventCurveEditors.draw();
         this.editor.notesEditor.draw();
+        this.editor.player.render();
+        if (this.editor.shownSideEditor) {
+            this.editor.shownSideEditor.update();
+        }
     }
     orderedLayout() {
+        const old = this.selectedLine;
         this._selectedLine = null; // Set as null first so that the editor is correctly selected
         // 用这个减少回流（内部实现用了文档碎片）
         this.appendMass(() => {
@@ -6871,9 +7745,10 @@ class JudgeLinesEditor extends Z {
                 this.append(editor);
             }
         });
-        this.selectedLine = this.chart.judgeLines[0];
+        this.selectedLine = this.editors.get(old) ? old : this.chart.judgeLines[0];
     }
     treeLayout() {
+        const old = this.selectedLine;
         this._selectedLine = null;
         this.appendMass(() => {
             this.html("");
@@ -6883,7 +7758,7 @@ class JudgeLinesEditor extends Z {
                 this.addIndentedLineEditor(line, 0);
             }
         });
-        this.selectedLine = this.chart.judgeLines[0];
+        this.selectedLine = this.editors.get(old) ? old : this.chart.judgeLines[0];
     }
     addIndentedLineEditor(line, indentLevel) {
         const isFather = line.children.size > 0;
@@ -6907,6 +7782,7 @@ class JudgeLinesEditor extends Z {
         }
     }
     groupedLayout() {
+        const old = this.selectedLine;
         this._selectedLine = null;
         this.appendMass(() => {
             this.html("");
@@ -6922,7 +7798,7 @@ class JudgeLinesEditor extends Z {
                 }
             }
         });
-        this.selectedLine = this.chart.judgeLineGroups[0].judgeLines[0];
+        this.selectedLine = this.editors.get(old) ? old : this.chart.judgeLines[0];
     }
     registerEditor(editor) {
         const line = editor.judgeLine;
@@ -6948,6 +7824,12 @@ class JudgeLinesEditor extends Z {
                 this.treeLayout();
                 break;
         }
+        this.append(new ZButton("Scroll into view")
+            .css("position", "absolute")
+            .css("right", "2px")
+            .onClick(() => {
+            this.editors.get(this.selectedLine).element.scrollIntoView();
+        }));
         this.dispatchEvent(new Event("reflow"));
     }
 }
@@ -6973,27 +7855,7 @@ class JudgeLineEditor extends Z {
             .addClass("judgeline-info-name")
             .setValue(judgeLine.name)
             .whenValueChange((s) => {
-            let m = s.match(/^\.(father|group)\s+?\=\s+?(.+)$/);
-            if (m) {
-                let [_, type, name] = m;
-                if (type == "father") {
-                    if (!name.match(/^[0-9]+$/)) {
-                        return false;
-                    }
-                    const id = parseInt(name);
-                    const lines = editor.chart.judgeLines;
-                    if (id >= lines.length) {
-                        return false;
-                    }
-                    judgeLine.father = lines[id];
-                }
-                else if (type == "group") {
-                    const mayBeGroup = editor.chart.judgeLineGroups.find(group => group.name === name);
-                    mayBeGroup.add(judgeLine);
-                }
-                return false;
-            }
-            judgeLine.name = s;
+            editor.operationList.do(new JudgeLinePropChangeOperation(this.judgeLine, "name", s));
         });
         this.$xSpan = $("span");
         this.$ySpan = $("span");
@@ -7049,7 +7911,17 @@ const tips = [
     "制谱器一定要有谱面✍✍✍✍✍✍✍✍",
     "[露出了6号缓动]",
     "本软件是“奇谱发生器”，不是“八股谱发生器”更不是“粪谱发生器”",
+    "奇谱发生器我爱你。饮水机我爱你。李纯真我爱你。欢乐牧场我爱你。娜奇我爱你。百零六我爱你。Sildild我爱你。",
+    "https://pgrfm.miraheze.org/为本软件的官方网站",
+    "想出“奇谱发生器”这名字的家里得请启普了",
     "撤销重做、复制粘贴不需要Ctrl，直接按Z/Y/C/V即可",
+    "写拆线表演的话，为拆下来的线创建一个判定线组，会有惊喜哦",
+    "判定线组可以在侧边的判定线信息编辑器编辑。你说怎么打开？按顶栏的“切换键”",
+    "按两下“切换”键可以进入用户脚本编辑器，可以用JavaScript来写谱哦，最好在VSCode里写了再复制过来",
+    "如果有Git的话，可以在server/config.json里启用版本控制，这样谱面会保存到Git里",
+    "KPAJSON本质上还是RPEJSON改的，点“编译”可以生成RPEJSON",
+    "男人只是在Hold里塞了100个Tap，就被Phira审核活活打断了双腿",
+    "2573 + 30 ^ 2 = 3473",
     "天苍苍，野茫茫，风吹草低见牛羊",
     "闊靛緥婧愮偣",
     "至此，，，，",
@@ -7108,15 +7980,19 @@ class Editor extends EventTarget {
         this.$noteInfo = $(document.getElementById("noteInfo"));
         this.$eventSequence = $(document.getElementById("eventSequence"));
         this.lineInfoEle = document.getElementById("lineInfo");
-        this.$saveButton = new ZButton("保存");
-        this.$compileButton = new ZButton("编译");
+        this.$saveButton = new ZButton("Save");
+        this.$compileButton = new ZButton("Compile");
         this.$offsetInput = new ZInputBox().attr("size", "3");
-        this.$switchButton = new ZButton("切换");
+        this.$switchButton = new ZButton("Switch");
         this.$judgeLinesEditorLayoutSelector = new ZDropdownOptionBox([
             new BoxOption("Ordered", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.ordered); }),
             new BoxOption("Grouped", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.grouped); }),
             new BoxOption("Tree", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.tree); })
         ]);
+        this.$showsLineID = new ZSwitch("ShowsLineID");
+        this.$showsUI = new ZSwitch("ShowsUI");
+        this.framesSinceLastUpdate = 0;
+        this.frameRate = 0;
         this.initialized = false;
         this.imageInitialized = false;
         this.audioInitialized = false;
@@ -7169,7 +8045,7 @@ class Editor extends EventTarget {
         });
         // Time Divisor (the third number in TimeTuple)
         this.$timeDivisor = new ZArrowInputBox();
-        this.$timeDivisor.onChange((n) => {
+        this.$timeDivisor.whenValueChange((n) => {
             this.timeDivisor = n;
             this.update();
         });
@@ -7177,7 +8053,7 @@ class Editor extends EventTarget {
         this.timeDivisor = 4;
         // PlaybackRate
         this.$playbackRate = new ZDropdownOptionBox(["1.0x", "1.5x", "2.0x", "0.5x", "0.25x", "0.75x"].map((n) => new BoxOption(n)))
-            .onChange((rateStr) => {
+            .whenValueChange((rateStr) => {
             this.player.audio.playbackRate = parseFloat(rateStr);
         });
         // Save Button
@@ -7206,7 +8082,7 @@ class Editor extends EventTarget {
             saveTextToFile(JSON.stringify(json), this.chart.name + ".rpe.json");
         });
         this.$offsetInput.whenValueChange(() => {
-            this.chart.offset = this.$offsetInput.getInt();
+            this.operationList.do(new ChartPropChangeOperation(this.chart, "offset", this.$offsetInput.getInt()));
         });
         this.$switchButton.onClick(() => {
             switch (this.shownSideEditor) {
@@ -7218,11 +8094,22 @@ class Editor extends EventTarget {
                     break;
                 case this.judgeLineInfoEditor:
                     editor.switchSide(this.userScriptEditor);
+                    break;
+                case this.userScriptEditor:
+                    editor.switchSide(this.chartInfoEditor);
+                    this.chartInfoEditor.update();
             }
         });
+        this.$showsLineID.whenClickChange((checked) => {
+            this.player.showsLineID = checked;
+        });
+        this.$showsUI.whenClickChange((checked) => {
+            this.player.showsInfo = checked;
+        });
         this.$tipsLabel = generateTipsLabel();
-        this.$topbar.append(this.$timeDivisor, this.$playbackRate, this.$offsetInput, this.$saveButton, this.$saveDialog, this.$compileButton, this.$switchButton, this.$judgeLinesEditorLayoutSelector, this.$tipsLabel);
+        this.$topbar.append(this.$timeDivisor, this.$playbackRate, this.$offsetInput, this.$saveButton, this.$saveDialog, this.$compileButton, this.$switchButton, this.$judgeLinesEditorLayoutSelector, this.$showsLineID, this.$showsUI, this.$tipsLabel);
         this.addEventListener("chartloaded", (e) => {
+            document.title = this.chart.name + " - " + document.title;
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence;
             this.$offsetInput.setValue(this.chart.offset.toString());
             this.operationList.addEventListener("firstmodified", () => {
@@ -7234,14 +8121,47 @@ class Editor extends EventTarget {
             this.operationList.addEventListener("noredo", () => {
                 notify("Nothing to redo");
             });
+            // @ts-expect-error
+            this.operationList.addEventListener("undo", (e) => {
+                notify(`Undone: ${e.operation.toString()}`);
+            });
+            // @ts-expect-error
+            this.operationList.addEventListener("redo", (e) => {
+                notify(`Redone: ${e.operation.toString()}`);
+            });
             this.operationList.addEventListener("needsupdate", () => {
                 this.update();
+            });
+            this.operationList.addEventListener("maxcombochanged", () => {
+                this.chart.countMaxCombo();
+            });
+            this.operationList.addEventListener("error", (e) => {
+                notify(e.error.message);
             });
             // @ts-expect-error
             this.operationList.addEventListener("needsreflow", (ev) => {
                 if (this.judgeLinesEditor.layoutType & ev.condition) {
                     notify("Reflow");
                     this.judgeLinesEditor.reflow();
+                }
+            });
+            // @ts-expect-error
+            this.operationList.addEventListener("do", (e) => {
+                const operation = e.operation;
+                if (operation instanceof JudgeLinePropChangeOperation && operation.field === "texture") {
+                    const textureName = operation.value;
+                    if (textureName === "line.png") {
+                        return;
+                    }
+                    if (!this.player.textureMapping.has(textureName)) {
+                        serverApi.fetchTexture(textureName).then((bmp) => {
+                            if (!bmp) {
+                                notify("No such texture in the chart's folder.");
+                                return;
+                            }
+                            this.player.textureMapping.set(textureName, bmp);
+                        });
+                    }
                 }
             });
         });
@@ -7253,16 +8173,17 @@ class Editor extends EventTarget {
         });
         window.addEventListener("keydown", (e) => {
             var _a, _b;
-            if ((e.key === "z" || e.key === "y") && document.activeElement === document.body) {
+            const key = e.key.toLowerCase();
+            if ((key === "z" || key === "y") && document.activeElement === document.body) {
                 e.preventDefault();
             }
             else {
                 return;
             }
-            if (e.key === "z") {
+            if (key === "z") {
                 (_a = this.operationList) === null || _a === void 0 ? void 0 : _a.undo();
             }
-            else if (e.key === "y") {
+            else if (key === "y") {
                 (_b = this.operationList) === null || _b === void 0 ? void 0 : _b.redo();
             }
         });
@@ -7353,7 +8274,7 @@ class Editor extends EventTarget {
     }
     loadChart() {
         const assignChart = (chart) => {
-            this.player.chart = chart;
+            this.player.receive(chart);
             this.chart = chart;
             this.operationList = new OperationList(chart);
             this.judgeLinesEditor = new JudgeLinesEditor(this, this.lineInfoEle);
@@ -7388,7 +8309,8 @@ class Editor extends EventTarget {
         this.userScriptEditor = new UserScriptEditor();
         this.multiNoteEditor = new MultiNoteEditor();
         this.multiNodeEditor = new MultiNodeEditor();
-        this.$noteInfo.append(this.eventEditor, this.noteEditor, this.judgeLineInfoEditor, this.userScriptEditor, this.multiNoteEditor, this.multiNodeEditor);
+        this.chartInfoEditor = new ChartInfoEditor();
+        this.$noteInfo.append(this.eventEditor, this.noteEditor, this.judgeLineInfoEditor, this.userScriptEditor, this.multiNoteEditor, this.multiNodeEditor, this.chartInfoEditor);
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next;
         this.judgeLineInfoEditor.target = chart.judgeLines[0];
         this.eventEditor.update();
@@ -7397,6 +8319,7 @@ class Editor extends EventTarget {
         this.userScriptEditor.hide();
         this.multiNoteEditor.hide();
         this.multiNodeEditor.hide();
+        this.chartInfoEditor.hide();
         this.shownSideEditor = this.noteEditor;
         // this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next.notes[0]
     }
@@ -7428,8 +8351,14 @@ class Editor extends EventTarget {
             this.updateNotesEditor();
             this.updateShownEditor();
             const now = performance.now();
-            this.renderingTime = this.lastRenderingTime ? (now - this.lastRenderingTime) : 0;
-            this.lastRenderingTime = now;
+            if (now - this.lastMs > 1000) {
+                this.frameRate = (this.framesSinceLastUpdate + 1) / (now - this.lastMs) * 1000;
+                this.lastMs = now;
+                this.framesSinceLastUpdate = 0;
+            }
+            else {
+                this.framesSinceLastUpdate++;
+            }
             console.log("updated");
         });
     }
@@ -7450,6 +8379,8 @@ class Editor extends EventTarget {
             return;
         }
         this.playButton.innerHTML = "暂停";
+        this.lastMs = performance.now();
+        this.framesSinceLastUpdate = 0;
         this.player.play();
         this.update();
     }
@@ -7471,7 +8402,7 @@ class RPEChartCompiler {
         console.time("compileChart");
         const chart = this.chart;
         const judgeLineGroups = chart.judgeLineGroups.map(group => group.name);
-        const judgeLineList = chart.judgeLines.map(line => this.dumpJudgeLine(line));
+        const judgeLineList = chart.judgeLines.map(line => this.compileJudgeLine(line));
         const BPMList = chart.timeCalculator.dump();
         const META = {
             RPEVersion: 1,
@@ -7484,6 +8415,32 @@ class RPEChartCompiler {
             offset: chart.offset,
             song: chart.name
         };
+        for (const uiName of ["bar", "combo", "combonumber", "level", "name", "pause", "score"]) {
+            const target = chart[`${uiName}Attach`];
+            if (!target) {
+                continue;
+            }
+            const lineData = judgeLineList[target.id];
+            // RPEJSON里面一条线只能绑一个UI，KPAJSON可以绑多个
+            // 所以如果绑了多个，自动给它们创建子线
+            if (lineData.attachUI) {
+                judgeLineList.push({
+                    Group: 0,
+                    Name: "Auto created for " + uiName,
+                    Texture: "line.png",
+                    attachUI: uiName,
+                    notes: [],
+                    bpmfactor: 1.0,
+                    eventLayers: [],
+                    father: target.id,
+                    isCover: lineData.isCover,
+                    numOfNotes: 0
+                });
+            }
+            else {
+                lineData.attachUI = uiName;
+            }
+        }
         console.timeEnd("compileChart");
         return {
             BPMList,
@@ -7491,10 +8448,12 @@ class RPEChartCompiler {
             judgeLineList,
             judgeLineGroup: judgeLineGroups,
             multiLineString: '',
-            multiScale: 1.0
+            multiScale: 1.0,
+            chartTime: chart.rpeChartingTime * 60,
+            kpaChartTime: chart.chartingTime,
         };
     }
-    dumpJudgeLine(judgeLine) {
+    compileJudgeLine(judgeLine) {
         var _a, _b;
         const chart = this.chart;
         const notes = this.compileNNLists([...judgeLine.nnLists.values()], [...judgeLine.hnLists.values()]);
@@ -7514,6 +8473,9 @@ class RPEChartCompiler {
             father: (_b = (_a = judgeLine.father) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : -1,
             isCover: judgeLine.cover ? 1 : 0,
             numOfNotes: notes.length,
+            anchor: judgeLine.anchor,
+            rotate_with_father: judgeLine.rotatesWithFather,
+            isGif: 0
         };
     }
     dumpEventNodeSequence(sequence) {
@@ -7522,7 +8484,7 @@ class RPEChartCompiler {
         let node = sequence.head.next;
         while (true) {
             const end = node.next;
-            if ("tailing" in end)
+            if (end.type === 1 /* NodeType.TAIL */)
                 break;
             nodes.push(node.dump());
             node = end.next;
@@ -7568,9 +8530,9 @@ class RPEChartCompiler {
     nnListToArray(nnList) {
         const notes = [];
         let node = nnList.tail.previous;
-        while (!("heading" in node)) {
+        while (node.type !== 0 /* NodeType.HEAD */) {
             for (let each of node.notes) {
-                notes.push(each.dumpRPE());
+                notes.push(each.dumpRPE(this.chart.timeCalculator));
             }
             node = node.previous;
         }
@@ -7594,7 +8556,7 @@ class RPEChartCompiler {
         map.set(seq, newSeq);
         let currentPos = newSeq.head;
         while (true) {
-            if (!currentNode || ("tailing" in currentNode.next)) {
+            if (!currentNode || (currentNode.next.type === 1 /* NodeType.TAIL */)) {
                 break;
             }
             const endNode = currentNode.next;
@@ -7616,7 +8578,7 @@ class RPEChartCompiler {
                 let node = quoted.head.next;
                 while (true) {
                     const end = node.next;
-                    if ("tailing" in end) {
+                    if (end.type === 1 /* NodeType.TAIL */) {
                         break;
                     }
                     const newNode = new EventStartNode(convertTime(node.time), convert(node.value));
@@ -7827,12 +8789,21 @@ const HIT_EFFECT_SIZE = 200;
 const HALF_HIT = HIT_EFFECT_SIZE / 2;
 // 以原点为中心，渲染的半径
 const RENDER_SCOPE = 900;
+const COMBO_TEXT = "KIPPHI";
+const BASE_LINE_LENGTH = 4050;
 const getVector = (theta) => [[Math.cos(theta), Math.sin(theta)], [-Math.sin(theta), Math.cos(theta)]];
 class Player {
     constructor(canvas) {
         this.tintNotesMapping = new Map();
         this.tintEffectMapping = new Map();
         this.greenLine = 0;
+        this.currentCombo = 0;
+        this.lastUncountedNNN = null;
+        this.lastUncountedTailNNN = null;
+        this.lastCountedBeats = 0;
+        this.showsInfo = false;
+        this.showsLineID = false;
+        this.textureMapping = new Map();
         this.canvas = canvas;
         this.context = canvas.getContext("2d");
         this.audioProcessor = new AudioProcessor();
@@ -7848,7 +8819,6 @@ class Player {
             this.playing = false;
         });
         this.initGreyScreen();
-        this.soundQueue = [];
     }
     get time() {
         return (this.audio.currentTime || 0) - this.chart.offset / 1000 - 0.017;
@@ -7902,6 +8872,68 @@ class Player {
         const { canvas, context } = this;
         this.renderGreyScreen();
     }
+    computeCombo() {
+        const { chart } = this;
+        const beats = this.beats;
+        const timeCalculator = chart.timeCalculator;
+        let lastUncountedNNN = this.lastUncountedNNN || chart.nnnList.head.next;
+        let lastUncountedTailNNN = this.lastUncountedTailNNN || chart.nnnList.head.next;
+        let lastCountedBeats = this.lastCountedBeats || 0;
+        let combo = this.currentCombo;
+        if (!this.playing) {
+            combo = 0;
+            lastUncountedNNN = chart.nnnList.head.next;
+            lastUncountedTailNNN = chart.nnnList.head.next;
+            lastCountedBeats = 0;
+        }
+        const countUntil = chart.nnnList.getNodeAt(beats);
+        if (!TimeCalculator.lt(countUntil.startTime, lastUncountedNNN.startTime)) {
+            for (let node = lastUncountedNNN; node.type !== 1 /* NodeType.TAIL */ && node !== countUntil; node = node.next) {
+                const nns = node.noteNodes;
+                const nnsLength = nns.length;
+                for (let i = 0; i < nnsLength; i++) {
+                    const nn = nns[i];
+                    combo += nn.notes.reduce((num, note) => num + (note.isFake ? 0 : 1), 0);
+                }
+            }
+            this.lastUncountedNNN = countUntil;
+        }
+        const countHoldTailUntil = chart.nnnList.getNodeAt(beats);
+        if (!TimeCalculator.lt(countHoldTailUntil.startTime, lastUncountedNNN.startTime)) {
+            let uncounted = null;
+            for (let node = lastUncountedTailNNN; node.type !== 1 /* NodeType.TAIL */ && node !== countHoldTailUntil; node = node.next) {
+                const hns = node.holdNodes;
+                const len = hns.length;
+                for (let i = 0; i < len; i++) {
+                    const hn = hns[i];
+                    const notes = hn.notes;
+                    const l = notes.length;
+                    let j = 0;
+                    for (; j < l; j++) {
+                        const note = notes[j];
+                        if (TimeCalculator.toBeats(note.endTime) > beats) {
+                            if (!uncounted) {
+                                uncounted = node;
+                            }
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                    for (; j < l; j++) {
+                        const note = notes[j];
+                        if (note.isFake || TimeCalculator.toBeats(note.endTime) < lastCountedBeats) {
+                            continue;
+                        }
+                        combo++;
+                    }
+                }
+            }
+            this.lastUncountedTailNNN = uncounted || countHoldTailUntil;
+            this.lastCountedBeats = beats;
+        }
+        this.currentCombo = combo;
+    }
     render() {
         if (!ENABLE_PLAYER) {
             return;
@@ -7935,30 +8967,47 @@ class Player {
         context.drawImage(this.hitCanvas, -675, -450, 1350, 900);
         context.restore();
         context.save();
-        const showInfo = settings.get("playerShowInfo");
-        if (showInfo) {
+        if (this.showsInfo) {
+            const setTransform = (lineOrNull) => {
+                if (!lineOrNull) {
+                    context.setTransform(identity.translate(675, 450));
+                }
+                else {
+                    context.setTransform(lineOrNull.renderMatrix);
+                    context.scale(1, -1);
+                }
+            };
+            this.computeCombo();
             context.fillStyle = "#ddd";
-            context.font = "50px phigros";
+            context.font = "40px phigros";
             const chart = this.chart;
             const title = chart.name;
             const level = chart.level;
-            context.fillText(title, -650, 400);
+            const combo = this.currentCombo;
+            setTransform(chart.nameAttach);
+            context.fillText(title, -600, 400);
+            const metrics = context.measureText(level);
+            setTransform(chart.levelAttach);
+            context.fillText(level, 600 - metrics.width, 400);
+            const score = combo / chart.maxCombo * 1000000;
+            const text = score.toFixed(0).padStart(7, "0");
+            setTransform(chart.scoreAttach);
+            context.textAlign = "right";
+            context.fillText(text, 600, -400);
+            if (combo >= 3) {
+                context.textAlign = "center";
+                context.font = "60px phigros";
+                setTransform(chart.combonumberAttach);
+                context.fillText(combo.toString(), 0, -400);
+                context.font = "20px phigros";
+                const h = 32;
+                setTransform(chart.comboAttach);
+                context.fillText(COMBO_TEXT, 0, -400 + h);
+            }
             context.restore();
             context.save();
         }
-        const timeLimit = this.time - 0.033;
-        if (this.playing) {
-            const queue = this.soundQueue;
-            const len = queue.length;
-            for (let i = 0; i < len; i++) {
-                const SoundEntity = queue[i];
-                if (SoundEntity.seconds < timeLimit) {
-                    continue;
-                }
-                this.audioProcessor.playNoteSound(SoundEntity.type);
-            }
-        }
-        this.soundQueue = [];
+        // this.soundQueue = [];
         // console.timeEnd("render")
     }
     renderLine(matrix, judgeLine) {
@@ -7966,32 +9015,67 @@ class Player {
         const timeCalculator = this.chart.timeCalculator;
         const beats = this.beats;
         // const timeCalculator = this.chart.timeCalculator
-        const [x, y, theta, alpha] = judgeLine.getValues(beats);
+        const alpha = judgeLine.getStackedValue("alpha", beats);
+        if (judgeLine.nnLists.size === 0 && judgeLine.hnLists.size === 0 && alpha <= 0 && judgeLine.children.size === 0 && !judgeLine.hasAttachUI) {
+            return;
+        }
+        const x = judgeLine.getStackedValue("moveX", beats);
+        const y = judgeLine.getStackedValue("moveY", beats);
+        const theta = judgeLine.getStackedValue("rotate", beats) * Math.PI / 180;
         judgeLine.moveX = x;
         judgeLine.moveY = y;
         judgeLine.rotate = theta;
         judgeLine.alpha = alpha;
-        // console.log(x, y, theta, alpha);
-        // console.time("calculate coordinate");
         const { x: transformedX, y: transformedY } = new Coordinate(x, y).mul(matrix);
-        const MyMatrix = identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
-        // console.timeEnd("calculate coordinate");
-        // console.time("transform");
-        context.setTransform(MyMatrix);
-        // console.timeEnd("transform");
+        const myMatrix = judgeLine.rotatesWithFather ? matrix.translate(x, y).rotate(-theta) : identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
+        context.setTransform(myMatrix);
+        // Cache a matrix
+        judgeLine.renderMatrix = myMatrix;
         if (judgeLine.children.size !== 0) {
             for (let line of judgeLine.children) {
                 context.save();
-                this.renderLine(MyMatrix, line);
+                this.renderLine(myMatrix, line);
                 context.restore();
             }
         }
-        context.lineWidth = LINE_WIDTH; // 判定线宽度
-        // const hexAlpha = alpha < 0 ? "00" : (alpha > 255 ? "FF" : alpha.toString(16))
-        const lineColor = settings.get("lineColor");
-        context.strokeStyle = rgba(...(this.greenLine === judgeLine.id ? [100, 255, 100] : lineColor), alpha / 255);
-        drawLine(context, -1350, 0, 1350, 0);
+        // Draw Line
+        const scaleX = 1.0;
+        const scaleY = 1.0;
+        const anchor = judgeLine.anchor;
+        let textureName = judgeLine.texture;
+        if (textureName !== "line.png" && !this.textureMapping.get(textureName)) {
+            textureName = "line.png";
+        }
+        context.scale(1, -1);
+        if (textureName === "line.png") {
+            const lineColor = [200, 200, 120];
+            context.fillStyle = rgba(...(this.greenLine === judgeLine.id ? [100, 255, 100] : lineColor), alpha / 255);
+            const scaledWidth = BASE_LINE_LENGTH * scaleX;
+            const scaledHeight = LINE_WIDTH * scaleY;
+            context.fillRect(-scaledWidth * anchor[0], -scaledHeight * anchor[1], scaledWidth, scaledHeight);
+            // #1
+        }
+        else {
+            context.globalAlpha = alpha / 255;
+            const bitmap = this.textureMapping.get(textureName);
+            const width = bitmap.width;
+            const height = bitmap.height;
+            const scaledWidth = width * scaleX;
+            const scaledHeight = height * scaleY;
+            context.drawImage(this.textureMapping.get(textureName), -scaledWidth * anchor[0], -scaledHeight * anchor[1], scaledWidth, scaledHeight);
+            context.globalAlpha = 1;
+        }
+        context.scale(1, -1);
+        // Draw Anchor
         context.drawImage(ANCHOR, -10, -10);
+        if (this.showsLineID) {
+            context.save();
+            context.scale(1, -1);
+            context.fillStyle = "white";
+            context.font = "40px phigros";
+            context.fillText(`#${judgeLine.id} ${judgeLine.name.toLowerCase() === "untitled" ? "" : judgeLine.name}`, 10, 50);
+            context.restore();
+        }
         /** 判定线的法向量 */
         const nVector = getVector(theta)[1]; // 奇变偶不变，符号看象限(
         const toCenter = [675 - transformedX, 450 - transformedY];
@@ -8011,20 +9095,21 @@ class Player {
             }
             return [startY, endY];
         };
-        const drawScope = (y) => {
-            if (y <= 1e-6)
-                return;
-            context.save();
-            context.strokeStyle = "#66ccff";
-            context.lineWidth = 2;
-            drawLine(context, -1350, +y, 1350, +y);
-            drawLine(context, -1350, -y, 1350, -y);
-            context.restore();
-        };
+        /*
+        const drawScope = (y: number) => {
+            if (y<=1e-6) return
+            context.save()
+            context.strokeStyle = "#66ccff"
+            context.lineWidth = 2
+            drawLine(context, -1350, +y, 1350, +y)
+            drawLine(context, -1350, -y, 1350, -y)
+            context.restore()
+
+        }
+        */
         const hitRenderLimit = beats > 0.66 ? beats - 0.66 : 0; // 渲染 0.66秒内的打击特效
         const holdTrees = judgeLine.hnLists;
         const noteTrees = judgeLine.nnLists;
-        const soundQueue = this.soundQueue;
         // console.time("Updating integral");
         if (holdTrees.size || noteTrees.size) {
             judgeLine.updateSpeedIntegralFrom(beats, timeCalculator);
@@ -8051,7 +9136,7 @@ class Player {
                         let noteNode = list.getNodeAt(start, true);
                         // console.log(noteNode)
                         let startBeats;
-                        while (!("tailing" in noteNode)
+                        while (!(noteNode.type === 1 /* NodeType.TAIL */)
                             && (startBeats = TimeCalculator.toBeats(noteNode.startTime)) < end) {
                             // 判断是否为多押
                             const isChord = noteNode.notes.length > 1
@@ -8063,70 +9148,72 @@ class Player {
                     }
                     // console.timeEnd("Rendering notes");
                 }
-                // console.time("Rendering sounds");
-                // 处理音效
-                this.renderSounds(list, beats, soundQueue, timeCalculator);
-                // console.timeEnd("Rendering sounds");
                 // console.time("Rendering hit effects");
                 // 打击特效
                 if (beats > 0) {
                     if (list instanceof HNList) {
-                        this.renderHoldHitEffects(MyMatrix, list, beats, hitRenderLimit, beats, timeCalculator);
+                        this.renderHoldHitEffects(myMatrix, list, beats, hitRenderLimit, beats, timeCalculator);
                     }
                     else {
-                        this.renderHitEffects(MyMatrix, list, hitRenderLimit, beats, timeCalculator);
+                        this.renderHitEffects(myMatrix, list, hitRenderLimit, beats, timeCalculator);
                     }
                 }
                 // console.timeEnd("Rendering hit effects");
             }
         }
-        /*
-        for (let eachSpeed in judgeLine.noteSpeeds) {
-            const speed = parseFloat(eachSpeed)
-            let notes = judgeLine.noteSpeeds[eachSpeed];
-            /** 判定线在假想的瀑布中前进距离 /
-            let currentPositionY = judgeLine.computeLinePositionY(this.beats, this.chart.timeCalculator) * speed;
-            for (let eachNote of notes) {
-                /** Note在某一时刻与判定线的距离 /
-                const positionY: number = eachNote.positionY - currentPositionY;
-                const endPositionY = eachNote.endPositionY - currentPositionY;
-                if (!positionY && positionY !== 0 || !endPositionY && endPositionY !== 0) {
-                    debugger;
-                }
-                if (endPositionY >= 0 && TimeCalculator.toBeats(eachNote.endTime) >= this.beats) {
-                    // 绑线Note=0不要忘了
-                    this.renderNote(eachNote, positionY < 0 ? 0 : positionY, endPositionY)
-                    // console.log(eachNote, eachNote.above)
-                    // console.log("pos:", eachNote.positionY, notes.indexOf(eachNote))
-                }
-            }
-        }
-        */
+        this.playSounds();
     }
-    renderSounds(tree, beats, soundQueue, timeCalculator) {
-        const lastBeats = this.lastBeats;
-        let node = tree.getNodeAt(beats).previous;
-        while (true) {
-            if ("heading" in node || TimeCalculator.toBeats(node.startTime) < lastBeats) {
-                break;
-            }
-            const notes = node.notes, len = notes.length;
-            for (let i = 0; i < len; i++) {
-                const note = notes[i];
-                if (note.isFake) {
-                    continue;
-                }
-                soundQueue.push(new SoundEntity(note.type, TimeCalculator.toBeats(note.startTime), timeCalculator));
-            }
-            node = node.previous;
+    playSounds() {
+        if (!this.playing) {
+            return;
         }
+        const beats = this.beats;
+        const timeCalculator = this.chart.timeCalculator;
+        const lastNNN = this.lastUnplayedNNNode;
+        const startingFrom = lastNNN.type === 1 /* NodeType.TAIL */ ? Infinity : TimeCalculator.toBeats(lastNNN.startTime);
+        const needsReset = startingFrom >= beats || timeCalculator.segmentToSeconds(startingFrom, beats) > 0.05;
+        // 超过0.05秒就会认为是快进过来的，这个时候，如果播放会很吵
+        if (needsReset) {
+            this.lastUnplayedNNNode = this.chart.nnnList.getNodeAt(beats);
+            return;
+        }
+        let node = lastNNN;
+        for (; node.type !== 1 /* NodeType.TAIL */ && TimeCalculator.toBeats(node.startTime) < beats; node = node.next) {
+            const nns = node.noteNodes;
+            const hns = node.holdNodes;
+            const nnl = nns.length;
+            for (let i = 0; i < nnl; i++) {
+                const node = nns[i];
+                const nl = node.notes.length;
+                for (let j = 0; j < nl; j++) {
+                    const note = node.notes[j];
+                    if (note.isFake) {
+                        continue;
+                    }
+                    this.audioProcessor.playNoteSound(note.type);
+                }
+            }
+            const hnl = hns.length;
+            for (let i = 0; i < hnl; i++) {
+                const node = hns[i];
+                const nl = node.notes.length;
+                for (let j = 0; j < nl; j++) {
+                    const note = node.notes[j];
+                    if (note.isFake) {
+                        continue;
+                    }
+                    this.audioProcessor.playNoteSound(NoteType.hold);
+                }
+            }
+        }
+        this.lastUnplayedNNNode = node;
     }
     renderHitEffects(matrix, tree, startBeats, endBeats, timeCalculator) {
         let noteNode = tree.getNodeAt(startBeats, true);
         const { hitContext } = this;
         // console.log(hitContext.getTransform())
         const end = tree.getNodeAt(endBeats);
-        if ("tailing" in noteNode) {
+        if (noteNode.type === 1 /* NodeType.TAIL */) {
             return;
         }
         while (noteNode !== end) {
@@ -8142,7 +9229,7 @@ class Player {
                 const { x, y } = new Coordinate(posX, yo).mul(matrix);
                 // console.log("he", x, y);
                 const he = note.tintHitEffects;
-                const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 30);
+                const nth = Math.floor((this.time - timeCalculator.toSeconds(beats)) * 16);
                 drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth, x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
             }
             noteNode = noteNode.next;
@@ -8163,7 +9250,7 @@ class Player {
         const { hitContext } = this;
         let noteNode = start;
         const end = tree.getNodeAt(endBeats);
-        if ("tailing" in noteNode) {
+        if (noteNode.type === 1 /* NodeType.TAIL */) {
             return;
         }
         if (noteNode !== end)
@@ -8181,7 +9268,7 @@ class Player {
                     const posX = note.positionX;
                     const yo = note.yOffset * (note.above ? 1 : -1);
                     const { x, y } = new Coordinate(posX, yo).mul(matrix);
-                    const nth = Math.floor((this.beats - Math.floor(this.beats)) * 30);
+                    const nth = Math.floor((this.beats - Math.floor(this.beats)) * 16);
                     const he = note.tintHitEffects;
                     drawNthFrame(hitContext, he !== undefined ? this.getTintHitEffect(he) : HIT_FX, nth, x - HALF_HIT, y - HALF_HIT, HIT_EFFECT_SIZE, HIT_EFFECT_SIZE);
                 }
@@ -8216,13 +9303,16 @@ class Player {
         }
         let image = note.tint ? this.getTintNote(note.tint, note.type) : getImageFromType(note.type);
         const context = this.context;
+        let zero = 0;
         if (note.yOffset) {
             positionY += note.yOffset;
             endpositionY += note.yOffset;
+            zero = note.yOffset;
         }
         if (!note.above) {
             positionY = -positionY;
             endpositionY = -endpositionY;
+            zero = -zero;
         }
         let length = endpositionY - positionY;
         const size = this.noteSize * note.size;
@@ -8236,8 +9326,8 @@ class Player {
         }
         if (note.type === NoteType.hold) {
             const isJudging = TimeCalculator.toBeats(note.startTime) <= this.beats;
-            positionY = isJudging ? 0 : positionY;
-            length = isJudging ? (endpositionY) : length;
+            positionY = isJudging ? zero : positionY;
+            length = isJudging ? (endpositionY - zero) : length;
             context.drawImage(HOLD_BODY, note.positionX - half, positionY - 10, size, length);
         }
         context.drawImage(image, note.positionX - half, positionY - 10, size, height);
@@ -8310,8 +9400,20 @@ class Player {
         this.update();
     }
     pause() {
-        this.playing = false;
         this.audio.pause();
+        this.playing = false;
+    }
+    receive(chart) {
+        this.chart = chart;
+        // 还是播放器适合处理纹理请求这事（
+        const textures = chart.scanAllTextures();
+        textures.delete("line.png");
+        for (const texture of textures) {
+            serverApi.fetchTexture(texture).then((bmp) => {
+                this.textureMapping.set(texture, bmp);
+            });
+        }
+        this.lastUnplayedNNNode = chart.nnnList.head.next;
     }
 }
 class ZProgressBar extends Z {
@@ -8486,6 +9588,30 @@ class ServerApi extends EventTarget {
         else {
             return PROJECT_NAME + "/" + path;
         }
+    }
+    fetchTexture(name) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const id = this.chartId;
+            const response = yield fetch(`/Resources/${id}/${name}`);
+            if (response.status !== 200) {
+                return null;
+            }
+            const blob = yield response.blob();
+            return yield createImageBitmap(blob);
+        });
+    }
+    queryTextures() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const id = this.chartId;
+            const response = yield fetch(`/Resources/${id}/textures`);
+            if (response.status !== 200) {
+                return [];
+            }
+            else {
+                const json = yield response.json();
+                return json.textures;
+            }
+        });
     }
 }
 class Settings {

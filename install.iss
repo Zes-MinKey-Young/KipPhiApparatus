@@ -3,11 +3,11 @@
 
 [Setup]
 AppName=KPA
-AppVersion=1.6.1
+AppVersion=1.7.0
 DefaultDirName={autopf}\KPA
 DefaultGroupName=KPA
 ; 输出安装包名称
-OutputBaseFilename=KPA_Setup_v1.6.1
+OutputBaseFilename=KPA_Setup_v1.7.0
 ; 压缩方式
 Compression=lzma
 ; 压缩级别
@@ -15,11 +15,13 @@ SolidCompression=yes
 ; 安装程序窗口标题
 WindowVisible=True
 LicenseFile=LICENSE
+DisableWelcomePage=no
+WizardStyle=modern
 
 [Files]
 Source: "dist\*.js"; DestDir: "{app}\dist"; Flags: ignoreversion
 Source: "html\*"; DestDir: "{app}\html"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "server\index.exe"; DestDir: "{app}\server"; Flags: ignoreversion
+Source: "server\server.exe"; DestDir: "{app}\server"; Flags: ignoreversion
 Source: "sound\*"; DestDir: "{app}\sound"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "img\*"; DestDir: "{app}\img"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "css\*"; DestDir: "{app}\css"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -29,7 +31,24 @@ Source: "LICENSE"; DestDir: "{app}"
 Source: "start.bat"; DestDir: "{app}"
 
 [Tasks]
-Name: "runapp"; Description: "启动 KPA/Launch KPA"; Flags: unchecked
+Name: "runapp"; Description: "{cm:RunApp}"; Flags: unchecked
 
 [Run]
 Filename: "{app}\start.bat"; Description: "启动 KPA"; Tasks: runapp
+
+[Languages]
+Name: "zh"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"; 
+Name: "en"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+zh.WelcomeLabel1=欢迎安装 KPA！
+zh.WelcomeLabel2=本安装程序的中文翻译包由github.com/kira-96/Inno-Setup-Chinese-Simplified-Translation提供，按照MIT协议授权。%n%n此向导将引导您完成 KPA 的安装过程。%n%n不建议安装到C盘，可能有权限问题。
+
+en.WelcomeLabel1=Welcome to KPA Setup!
+en.WelcomeLabel2=This wizard will guide you through the installation of KPA.%n%nIt is not recommended to install to C:\ drive, which may cause permission issues.
+
+
+[CustomMessages]
+zh.RunApp=运行 奇谱发生器
+
+en.RunApp=Launch KipPhi Apparatus

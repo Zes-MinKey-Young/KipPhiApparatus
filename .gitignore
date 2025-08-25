@@ -8,3 +8,4 @@ pgrfmwiki/pictures
 server/config.jsonc
 *.pem
 node_modules
+*.log

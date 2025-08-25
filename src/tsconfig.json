@@ -6,6 +6,9 @@
         },
         {
             "path": "./tsconfig-diff.json"
+        },
+        {
+            "path": "./tsconfig-version.json"
         }
     ]
 }
