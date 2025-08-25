@@ -55,7 +55,7 @@ jobs:
       - name: Build server binary
         working-directory: ./server
         run: |
-          bun build index.ts --compile --target bun-${{ matrix.target }} --outfile kpa-server-${{ matrix.target }}
+          bun build server.ts --compile --target bun-${{ matrix.target }} --outfile kpa-server-${{ matrix.target }}
 
       - name: Upload server binary
         uses: actions/upload-artifact@v4
