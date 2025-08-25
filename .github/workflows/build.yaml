@@ -54,6 +54,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./server
+        shell: bash
         run: |
           if [ -f "package.json" ]; then
             echo "Installing npm dependencies"
@@ -64,6 +65,7 @@ jobs:
 
       - name: Build server binary
         working-directory: ./server
+        shell: bash
         run: |
           echo "Building with Bun for target: ${{ matrix.target }}"
           bun build index.ts --compile --target bun-${{ matrix.target }} --outfile kpa-server-${{ matrix.target }}
