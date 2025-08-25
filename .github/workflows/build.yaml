@@ -52,10 +52,21 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install dependencies
+        working-directory: ./server
+        run: |
+          if [ -f "package.json" ]; then
+            echo "Installing npm dependencies"
+            bun install
+          else
+            echo "No package.json found, skipping dependency installation"
+          fi
+
       - name: Build server binary
         working-directory: ./server
         run: |
-          bun build server.ts --compile --target bun-${{ matrix.target }} --outfile kpa-server-${{ matrix.target }}
+          echo "Building with Bun for target: ${{ matrix.target }}"
+          bun build index.ts --compile --target bun-${{ matrix.target }} --outfile kpa-server-${{ matrix.target }}
 
       - name: Upload server binary
         uses: actions/upload-artifact@v4
