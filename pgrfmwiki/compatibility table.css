@@ -1,0 +1,25 @@
+
+.compatibility-table {
+    border: 1px solid #222
+}
+
+.compatibility-table tr {
+    border-bottom: 1px solid transparent
+}
+
+.compatibility-table th img {
+    display: block;
+}
+
+.compatibility-table td, .compatibility-table th {
+    text-align: center;
+}
+
+.compatibility-table th {
+    border-bottom: 1px solid #222;
+    font-weight: bold;
+}
+
+.compatibility-table tr:nth-child(odd) {
+    background-color: #eee;
+}

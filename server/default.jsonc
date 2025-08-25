@@ -1,0 +1,17 @@
+{   // This is the configuration file for KPA server. We use Git as version control system by default. 
+    // Users can customize the configuration file to fit their needs.
+    "pathquery": ["git", "--show-dcup"], // The command to get path of a repository's root directory relative to current path in the version control system the user is using.
+    "create": [
+        ["git", "init"] 
+    ], // The command to create a new repository in the version control system the user is using.
+    "commit": [
+        ["git", "add", "."],
+        ["git", "commit", "-m", "$message"]
+    ], // The command to commit changes to the repository in the version control system the user is using.
+    "autosave": [
+        ["git", "add", "."],
+        ["git", "commit", "-m", "Autosave $time"]
+    ], /// The command to commit autosave changes to the repository in the version control system the user is using.
+    "revision": [["git", "show", "$version:$file"]],
+    "versionControlEnabled": false // Whether the version control is enabled or not.
+}

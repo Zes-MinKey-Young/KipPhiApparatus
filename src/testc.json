@@ -1,0 +1,12 @@
+{
+    "exclude": ["*.js", "ty.ts"],
+    "compilerOptions": {
+        "target": "ES6",
+        "lib": ["ES2016", "dom", "ES2021.WeakRef"],
+        "strictFunctionTypes": true,
+        "outFile": "../dist/test.js",
+        "sourceMap": true,
+        "declaration": true
+    },
+    "include": ["easing.ts","util.ts","operation.ts","jumparray.ts","selectionManager.ts","note.ts","judgeline.ts","chart.ts","","event.ts","time.ts","main.ts"]
+}

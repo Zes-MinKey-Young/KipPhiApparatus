@@ -1,0 +1,180 @@
+.radio-box {
+    display: flex;
+    flex-direction: row;
+    gap: 2px;
+}
+
+dialog[open] {
+    display: flex;
+    top: 20%;
+    z-index: 1;
+}
+
+
+
+
+.input-box {
+    border-radius: 0;
+    text-align: center;
+}
+
+.fraction-input {
+    background-color: #ddd;
+    padding: 2px;
+    gap: 2px;
+    display: grid;
+    grid-template-rows: 1.5em 2px 1.5em;
+    grid-template-columns: 2em 2em;
+    margin: auto
+}
+
+.fraction-input .input-box.integer {
+    grid-row: 1 / 4;
+    margin: auto 0
+}
+
+.fraction-input .line {
+    background-color: black;
+}
+
+
+.dropdown-option-box {
+    background-color: #FFF;
+    color: black;
+    min-height: 1em;
+    width: min-content;
+    padding-inline: 0.5em;
+    text-align: center;
+    margin-block: auto;
+    position: relative;
+}
+
+.search-box {
+    position: relative;
+    margin-block: auto;
+    width: min-content;
+    color: black;
+}
+
+.dropdown-option-box .dropdown-option-list,
+.search-box .dropdown-option-list
+{
+    top: 100%;
+    left: -0.25em;
+    position: absolute;
+    min-width: 4em;
+    display: none;
+    z-index: 1;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.dropdown-option-box.up .dropdown-option-list,
+.search-box.up .dropdown-option-list
+{
+    top: unset;
+    bottom: 100% !important;
+    position: absolute;
+}
+
+.dropdown-option-box:hover .dropdown-option-list,
+.search-box:has(> input:focus) .dropdown-option-list,
+.search-box:hover .dropdown-option-list {
+    display: block;
+    background-color: #BBB;
+    border: 1px solid black;
+}
+.dropdown-option-list > *:nth-child(even) {
+    background-color: #CCC;
+}
+.dropdown-option-list > *:hover {
+    background-color: #4499aa;
+}
+
+.flex-row {
+    display: flex;
+    margin: auto;
+    flex-direction: row;
+    gap: 2px;
+}
+
+.arrow-down {
+    background-image: url(../img/ArrowDown.png);
+    grid-row: 2;
+}
+
+.arrow-up {
+    background-image: url(../img/ArrowUp.png);
+}
+
+.arrow-down, .arrow-up {
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.arrow-input-box {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    grid-template-columns: 1em 4em;
+}
+
+.arrow-input-box .input-box {
+    grid-row: 1 / 3;
+    grid-column: 2;
+}
+
+.button {
+    background-color: #eee;
+    color: #555;
+    padding: 0.2em 0.5em;
+    margin-block: auto;
+    border-radius: 0.25em;
+    cursor: pointer;
+    user-select: none;
+    text-align: center;
+}
+
+.button.destructive {
+    background-color: #f44;
+    color: white;
+
+}
+
+.button.progressive {
+    background-color: #4af;
+    color: white;
+}
+
+.switch.checked {
+    background-color: aquamarine;
+}
+
+.button.disabled {
+    background-color: #aaa;
+}
+
+progress {
+    height: 100%;
+}
+
+.collapse-folded {
+    width: 1em;
+    height: 1em;
+    background-image: url("../img/triangle-right.svg");
+    background-position: center;
+    background-size: cover;
+}
+
+.collapse-unfolded {
+    width: 1em;
+    height: 1em;
+    background-image: url("../img/triangle-down.svg");
+    background-position: center;
+    background-size: cover;
+}
+
+textarea {
+    font-family: 'Consolas', monospace, serif;
+    font-size: 1em;
+}

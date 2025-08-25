@@ -1,0 +1,23 @@
+{
+  "name": "server",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "node index.js",
+    "watch": "ts-node fileWatcher.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.19"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "bun-types": "^1.2.19",
+    "jsonc-parser": "^3.3.1",
+    "music-metadata": "^11.2.3",
+    "node-stream-zip": "^1.15.0"
+  }
+}

@@ -1,0 +1,22 @@
+{
+    "extends": "./tsconfig-base.json",
+    "compilerOptions": {
+        "outFile": "../dist/diff.js"
+    },
+    "include": [
+        "version.ts",
+        
+        "shared/set.ts",
+        "shared/chartTypes.d.ts", 
+        "shared/audio.ts", "shared/images.ts",
+        "shared/matrix.ts",
+        "shared/easing.ts", "shared/jumparray.ts", "shared/note.ts", "shared/judgeline.ts", "shared/chart.ts", "shared/event.ts", "shared/time.ts",
+        "ui/ui.ts", "ui/player.ts", "shared/util.ts",
+        "shared/server.ts",
+
+        "shared/settings.ts",
+
+        "diff/comparer.ts",
+        "diff/main.ts"
+    ]
+}

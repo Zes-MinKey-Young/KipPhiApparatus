@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run Watch Script",
+      "type": "shell",
+      "command": "bun run compileOnSave.ts",
+      "problemMatcher": [],
+      "isBackground": true,  // 标记为后台任务
+      "runOptions": {
+        "runOn": "folderOpen"  // 在打开工作区时自动运行
+      },
+      "presentation": {
+        "reveal": "never"  // 不显示终端窗口
+      },
+      "options": {
+        "cwd": "./scripts"
+      }
+    },
+    {
+        "label": "Bun Server",
+        "type": "shell",
+        "command": "bun index.ts",
+        "runOptions": {"runOn": "folderOpen"},
+        "options": {"cwd": "./server"}
+    }
+  ]
+}

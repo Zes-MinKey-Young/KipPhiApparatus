@@ -1,0 +1,156 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ "${GITHUB_REF}" == "refs/tags/"* ]]; then
+            VERSION=${GITHUB_REF_NAME#v}
+          else
+            VERSION="dev-$(date +%Y%m%d)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  build-server:
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+            platform: windows
+          - os: ubuntu-latest
+            target: linux-x64
+            platform: linux
+          - os: macos-latest
+            target: darwin-x64
+            platform: macos
+          - os: macos-latest
+            target: darwin-arm64
+            platform: macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Build server binary
+        working-directory: ./server
+        run: |
+          bun build index.ts --compile --target bun-${{ matrix.target }} --outfile kpa-server-${{ matrix.target }}
+
+      - name: Upload server binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: server-${{ matrix.target }}
+          path: server/kpa-server-${{ matrix.target }}
+
+  build-windows-installer:
+    needs: [prepare, build-server]
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download Windows server binary
+        uses: actions/download-artifact@v3
+        with:
+          name: server-windows-x64
+          path: server
+
+      - name: Set version in ISS file
+        run: |
+          # 读取版本号
+          $version = "${{ needs.prepare.outputs.version }}"
+          
+          # 替换 ISS 文件中的版本信息
+          $issContent = Get-Content install.iss -Raw
+          $issContent = $issContent -replace "AppVersion=.*", "AppVersion=$version"
+          $issContent = $issContent -replace "OutputBaseFilename=.*", "OutputBaseFilename=KPA_Setup_v$version"
+          
+          # 保存修改后的文件
+          Set-Content install.iss $issContent
+          
+          # 显示修改后的内容
+          Write-Host "Updated ISS file:"
+          Get-Content install.iss
+
+      - name: Setup Inno Setup
+        run: |
+          choco install innosetup -y
+
+      - name: Build Windows installer
+        run: |
+          # 确保 server 文件有执行权限
+          if (Test-Path "server\kpa-server-windows-x64") {
+            Copy-Item "server\kpa-server-windows-x64" -Destination "server\kpa-server.exe"
+          }
+          
+          # 编译安装包
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Odist install.iss
+
+      - name: Check if installer was created
+        run: |
+          Get-ChildItem -Path dist -Force
+          if (Test-Path "dist\*.exe") {
+            Write-Host "Installer created successfully"
+          } else {
+            Write-Error "Installer not found"
+            exit 1
+          }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v3
+        with:
+          name: kpa-windows-installer
+          path: dist/*.exe
+
+  release:
+    needs: [prepare, build-server, build-windows-installer]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ./artifacts
+
+      - name: List artifacts
+        run: |
+          find ./artifacts -type f
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ needs.prepare.outputs.version }}
+          tag_name: v${{ needs.prepare.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
+          files: |
+            ./artifacts/server-windows-x64/kpa-server-windows-x64
+            ./artifacts/server-linux-x64/kpa-server-linux-x64
+            ./artifacts/server-darwin-x64/kpa-server-darwin-x64
+            ./artifacts/server-darwin-arm64/kpa-server-darwin-arm64
+            ./artifacts/kpa-windows-installer/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

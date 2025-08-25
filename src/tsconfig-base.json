@@ -1,0 +1,14 @@
+{
+    "exclude": ["*.js"],
+    "compilerOptions": {
+        "composite": true,
+        "target": "ES6",
+        "lib": ["ES2016", "dom", "ES2021.WeakRef", "ESNext.Collection", "ES2017.Object", "ES2017.String"],
+        "strictFunctionTypes": true,
+        "sourceMap": true,
+        "declaration": true
+        //"strictPropertyInitialization": true,
+        //"strictNullChecks": true
+        
+    }
+}

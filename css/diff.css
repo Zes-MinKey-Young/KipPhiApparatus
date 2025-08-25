@@ -1,0 +1,16 @@
+#main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1em;
+}
+
+#topbar {
+    grid-column: 1 / 3;
+    display: flex;
+    flex-direction: row;
+}
+
+canvas {
+    width: 100%;
+}
+

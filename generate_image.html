@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generate Image</title>
+</head>
+<body>
+    <canvas id="myCanvas" width="1024" height="1024"></canvas>
+    <script>
+        // 16个格子代表打击特效的16帧
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+
+        for (let i = 0; i < 4; i++) {
+            for (let j = 0; j < 4; j++) {
+                const alpha = 1 - (j * 4 + i) / 16;
+                ctx.fillStyle = ctx.strokeStyle = `rgba(230, 240, 0, ${alpha})`;
+                ctx.lineWidth = 3;
+                ctx.font = 'bold 42px Arial';
+                ctx.fillText('KIPPHI!', i * 256 + 50, j * 256 + 140);
+
+                // 保存当前绘图状态
+                ctx.save();
+
+                // 将坐标系原点移动到矩形中心
+                ctx.translate(i * 256 + 128, j * 256 + 128);
+
+                // 计算旋转角度，这里假设每帧旋转 15 度
+                const rotationAngle = (j * 4 + i) * 15 * Math.PI / 180;
+                ctx.rotate(rotationAngle);
+
+                const half = 80
+                // 绘制矩形
+                ctx.strokeRect(-half, -half, half * 2, half * 2);
+
+                // 恢复绘图状态
+                ctx.restore();
+            }
+        }
+
+        const link = document.createElement('a');
+        link.download = 'output.png';
+        link.href = canvas.toDataURL('image/png');
+        document.addEventListener("click", ()=> link.click());
+    </script>
+</body>
+</html>

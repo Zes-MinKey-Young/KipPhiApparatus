@@ -1,0 +1,1 @@
+bun build --compile --outFile="../dist/server.exe" index.ts

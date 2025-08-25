@@ -1,0 +1,108 @@
+<html>
+    <head>
+        <title>奇谱发生器</title>
+        <style>
+            h1 {
+                text-align: center;
+            }
+            ul {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, 16em);
+                gap: 1em
+            }
+            li {
+                text-align: center;
+                list-style-type: none;
+                display: flex;
+                flex-direction: column;
+                height: 20em;
+                padding: 0.25em;
+                background-color: aliceblue;
+                border: 2px solid silver
+            }
+            img {
+                width: 15em;
+                height: 18em;
+                object-fit: contain;
+            }
+            a {
+                text-decoration: none;
+
+            }
+            a#import, a#create {
+                display: block;
+                text-align: center;
+                position: fixed;
+                background-color: cornflowerblue;
+                font-size: larger;
+                padding: 0.25em 0.5em;
+                color: white;
+                border-radius: 5px;
+            }
+            #import {
+                top: 0.5em;
+                left: 0.5em;
+            }
+            #create {
+                top: 0.5em;
+                right: 0.5em;
+            }
+            #message {
+                font-size: large;
+            }
+            #info {
+                position: fixed;
+                bottom: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>谱面列表</h1>
+        <p id="info">
+            KipPhiApparatus v<span id="version"></span> by Zes-Minkey-Young<br>MIT Licensed
+        </p>
+        <p style="font-weight: bold; font-size: larger;">
+            虽然本软件按照MIT许可证授权，但软件作者不鼓励、不支持此软件的付费再分发，请知悉。
+        </p>
+        <ul id="chartList"></ul>
+        <div id="message"></div>
+        <a id="import" href="/import">导入谱面</a>
+        <a id="create" href="/create">创建谱面</a>
+        <script type="module">
+            function noChart() {
+                document.getElementById("message").innerHTML = "没有找到任何谱面，快去创建/导入一个！";
+            }
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", "/status", false);
+            xhr.send();
+            if (xhr.status === 204) {
+                const res1 = await fetch("/Resources")
+                const charts = (await res1.json()).charts;
+                const list = document.getElementById("chartList");
+                const documentFragment = document.createDocumentFragment();
+                for (const chart of charts) {
+                    const img = new Image();
+                    fetch(`/Resources/${chart}/metadata.json`)
+                        .then(res2 => res2.json())
+                        .then(metadata => {
+                            img.src = `/Resources/${chart}/${metadata.Picture}`;
+                            a.textContent = metadata.Title || chart;
+                        });
+                    const li = document.createElement("li");
+                    li.append(img)
+                    const a = document.createElement("a");
+                    a.href = `/Resources/${chart}`;
+                    li.append(a);
+                    documentFragment.appendChild(li);
+                }
+                list.appendChild(documentFragment);
+            } else {
+                alert("服务器未启动");
+            }
+        </script>
+        <script src="/dist/version.js"></script>
+        <script>
+            document.getElementById("version").textContent = VERSION_STRING;
+        </script>
+    </body>
+</html>

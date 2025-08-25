@@ -1,0 +1,11 @@
+test
+*.kpa.json
+*.code-workspace
+*.i.wikitext
+Resources
+pgrfmwiki/pictures
+*.exe
+server/config.jsonc
+*.pem
+node_modules
+*.log

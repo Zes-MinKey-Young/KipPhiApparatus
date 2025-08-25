@@ -1,0 +1,2 @@
+var VERSION = 170;
+var VERSION_STRING = "1.7.0";

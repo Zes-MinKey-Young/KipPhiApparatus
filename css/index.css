@@ -1,0 +1,270 @@
+@font-face {
+    font-family: "phigros";
+    src: url(./cmdysj.ttf);
+}
+
+body, html {
+    font-family: "phigros";
+    color: white;
+    margin: 0;
+    height: 100lvh;
+    width: 100lvw;
+    overflow: hidden;
+    box-sizing: border-box;
+    user-select: none;
+}
+
+canvas {
+    font-family: "phigros";
+}
+
+input:not(:focus) {
+    font-family: "phigros";
+}
+
+#main {
+    display: grid;
+    grid-template-rows: 2em 5fr 5fr;
+    grid-template-columns: 6fr 4fr;
+    height: 100%;
+    width: 100%;
+    gap: 4px;
+    background-color: #444;
+    padding: 4px;
+    box-sizing: border-box;
+}
+
+#main > div {
+    background-color: #666
+}
+
+#topbar {
+    grid-column: 1 / 3;
+    display: flex;
+    flex-direction: row;
+}
+
+#preview {
+    grid-row: 2 / 3;
+    grid-column: 1 / 2;
+    height: calc((100vh - 2em - 6px) / 2 ); /* 防止Canvas撑大整个布局 */
+}
+
+#preview {
+    display: flex;
+    flex-direction: row;
+}
+
+canvas#player {
+    height: 100%
+}
+
+.notes-editor {
+    height: calc((100vh - 2em - 6px) / 2 )
+}
+
+.notes-editor-status-bar {
+    margin: auto;
+}
+
+.notes-editor.mobile {
+    position: absolute;
+    left: 0;
+    transition: 0.5s ease-out opacity;
+    opacity: 0.2;
+}
+
+.notes-editor.mobile:hover {
+    opacity: 1;
+}
+
+
+
+#noteInfo {
+    grid-row: 2 / 3;
+    grid-column: 2 / 3;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    isolation: isolate;
+    height: calc((100vh - 2em - 6px) / 2 );
+}
+
+#eventSequence {
+    grid-row: 3 / 4;
+    grid-column: 1 / 2;
+}
+
+#lineInfo {
+    grid-row: 3 / 4;
+    grid-column: 2 / 3;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#player {
+    text-align: center;
+}
+
+
+.judge-line-editor {
+    display: grid;
+    grid-template-rows: 1fr auto;
+    grid-template-columns: 2em repeat(4, 2em 4em);
+    gap: 4px;
+    background-color: #999;
+    border-radius: 6px;
+}
+
+.judge-line-editor-father {
+    position: sticky;
+    top: 0;
+}
+
+.judgeline-info-id {
+    grid-row: 1 / 2;
+    font-size: larger;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.judgeline-info-name {
+    grid-column: 2 / span 8;
+    font-size: large;
+    margin: auto;
+}
+
+.judge-line-editor-selected {
+    background-color: #4499aa;
+}
+
+.group-editor {
+    background-color: #888;
+    display: flex;
+    flex-direction: row;
+    padding: 0.25em 1em;
+    align-items: center;
+    position: sticky;
+    top: 0;
+}
+
+.side-editor {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.side-editor .side-editor-title {
+    background-color: #777;
+    color: #EEE;
+    font-size: 150%;
+    padding: 0.2em 1em;
+}
+
+.side-editor .side-editor-body {
+    flex: 1;
+    display: grid;
+    padding: 3em 2em;
+    grid-template-columns: 3fr 7fr;
+    overflow: auto;
+    row-gap: 0.5em;
+}
+
+.side-editor.user-script-editor .side-editor-body {
+    display: flex;
+    flex-direction: column;
+}
+
+.side-editor .dropdown-option-box {
+    margin-inline: auto;
+}
+
+
+.side-editor-warning {
+    grid-column: 1 / 3;
+    color: yellow;
+}
+
+
+
+
+.event-curve-editors {
+    display: flex;
+    flex-direction: column-reverse;
+}
+
+.event-curve-editors-bar {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.notes-editor {
+    display: grid;
+    grid-template-rows: auto 1fr;
+}
+
+.notes-editor-status-bar {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.side-editor .radio-tabs {
+    grid-column: span 2;
+}
+
+
+.notification {
+    background-color: #CCC;
+    color: #222;
+    padding: 0.2em;
+    border-radius: 0.2em;
+    position: fixed;
+    font-size: large;
+    left: 100%;
+    width: 20%;
+    min-height: 4%;
+    transition: 0.7s ease-out left, 0.7s ease-out top;
+    border: 2px solid #444;
+}
+.notification:last-child {
+    top: 4%
+}
+.notification:nth-last-child(2) {
+    top: 9%
+}
+.notification:nth-last-child(3) {
+    top: 14%
+}
+
+
+.notification.fade-in {
+    left: 75%
+}
+
+.tips-label {
+    width: 40%;
+    overflow: visible;
+    padding-inline: 0.5em;
+    line-height: 1em;
+}
+
+
+.user-script-editor-output {
+    background-color: #111;
+    border-bottom: #4499aa 1px solid;
+}
+
+.user-script-editor-error {
+    background-color: #f44;
+    border-bottom: #fb4 1px solid;
+}
+
+textarea {
+    min-height: 120px;
+}
