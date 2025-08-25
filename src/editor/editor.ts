@@ -359,17 +359,19 @@ class Editor extends EventTarget {
     readonly playButton: HTMLButtonElement;
     readonly $timeDivisor: ZArrowInputBox;
     timeDivisor: number
-    readonly $saveButton = new ZButton("保存");
-    readonly $compileButton = new ZButton("编译");
+    readonly $saveButton = new ZButton("Save");
+    readonly $compileButton = new ZButton("Compile");
     readonly $playbackRate: ZDropdownOptionBox;
     readonly $offsetInput = new ZInputBox().attr("size", "3");
-    readonly $switchButton = new ZButton("切换");
+    readonly $switchButton = new ZButton("Switch");
     readonly $judgeLinesEditorLayoutSelector = new ZDropdownOptionBox([
         new BoxOption("Ordered", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.ordered) }),
         new BoxOption("Grouped", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.grouped) }),
         new BoxOption("Tree", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.tree) })
     ]);
     readonly $tipsLabel: Z<"div">;
+    readonly $showsLineID = new ZSwitch("ShowsLineID");
+    readonly $showsUI = new ZSwitch("ShowsUI");
 
     judgeLinesEditor: JudgeLinesEditor;
     selectedLine: JudgeLine;
@@ -379,6 +381,7 @@ class Editor extends EventTarget {
     userScriptEditor: UserScriptEditor;
     multiNoteEditor: MultiNoteEditor;
     multiNodeEditor: MultiNodeEditor;
+    chartInfoEditor: ChartInfoEditor;
 
     lastMs: number;
     framesSinceLastUpdate: number = 0;
@@ -483,8 +486,8 @@ class Editor extends EventTarget {
             saveTextToFile(JSON.stringify(json), this.chart.name + ".rpe.json")
         })
         this.$offsetInput.whenValueChange(() => {
-                this.chart.offset = this.$offsetInput.getInt();
-            });
+            this.operationList.do(new ChartPropChangeOperation(this.chart, "offset", this.$offsetInput.getInt()));
+        });
 
         this.$switchButton.onClick(() => {
             switch (this.shownSideEditor) {
@@ -496,7 +499,17 @@ class Editor extends EventTarget {
                     break;
                 case this.judgeLineInfoEditor:
                     editor.switchSide(this.userScriptEditor)
+                    break;
+                case this.userScriptEditor:
+                    editor.switchSide(this.chartInfoEditor)
+                    this.chartInfoEditor.update();
             }
+        })
+        this.$showsLineID.whenClickChange((checked) => {
+            this.player.showsLineID = checked;
+        });
+        this.$showsUI.whenClickChange((checked) => {
+            this.player.showsInfo = checked;
         })
 
         this.$tipsLabel = generateTipsLabel();
@@ -509,6 +522,9 @@ class Editor extends EventTarget {
             this.$compileButton,
             this.$switchButton,
             this.$judgeLinesEditorLayoutSelector,
+            this.$showsLineID,
+            this.$showsUI,
+
             this.$tipsLabel
         )
 
@@ -713,13 +729,15 @@ class Editor extends EventTarget {
         this.userScriptEditor = new UserScriptEditor();
         this.multiNoteEditor = new MultiNoteEditor();
         this.multiNodeEditor = new MultiNodeEditor();
+        this.chartInfoEditor = new ChartInfoEditor();
         this.$noteInfo.append(
             this.eventEditor,
             this.noteEditor,
             this.judgeLineInfoEditor,
             this.userScriptEditor,
             this.multiNoteEditor,
-            this.multiNodeEditor
+            this.multiNodeEditor,
+            this.chartInfoEditor
             );
         this.eventEditor.target = chart.judgeLines[0].eventLayers[0].moveX.head.next
         this.judgeLineInfoEditor.target = chart.judgeLines[0]
@@ -729,6 +747,7 @@ class Editor extends EventTarget {
         this.userScriptEditor.hide()
         this.multiNoteEditor.hide()
         this.multiNodeEditor.hide()
+        this.chartInfoEditor.hide()
         this.shownSideEditor = this.noteEditor
         // this.noteEditor.target = chart.judgeLines[0].noteTrees["#1"].head.next.notes[0]
     }

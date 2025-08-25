@@ -32,3 +32,6 @@ Operation：实现所有用户操作。为便于撤销和重做，将其封装�
 
 ----
 KDP是KPA Development Proposal的缩写（类似PEP），KDP是KPA的提案。
+
+
+**重要提示：智能问答下排查BUG时未经同意不要给出代码，方便我驳回模型的错误假设**

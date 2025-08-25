@@ -11,7 +11,7 @@ const debounce = (fn: Function, delay: number) => {
     };
 };
 
-const confPaths = ["../src/tsconfig-editor.json", "../src/tsconfig-diff.json"];
+const confPaths = ["../src/tsconfig-editor.json", "../src/tsconfig-diff.json", "../src/tsconfig-version.json"];
 
 for (const path of confPaths) {
     const configFile = Bun.file(path);

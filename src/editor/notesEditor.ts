@@ -66,6 +66,7 @@ class NotesEditor extends Z<"div"> {
     timeMap: Map<number, TimeT> = new Map();
     pointedTime: TimeT;
 
+    showsNNNListAttachable: boolean = true;
 
     drawn: boolean;
 
@@ -81,6 +82,7 @@ class NotesEditor extends Z<"div"> {
     readonly $editButton      = new ZSwitch("Edit")
     readonly $timeSpanInput   = new ZInputBox("2").attr("placeholder", "TimeSpan").attr("size", "3");
     readonly $xLineCountInput = new ZArrowInputBox(10).attr("placeholder", "TimeLineCount").attr("size", "3");
+    readonly $showsNNNListAttachable = new ZSwitch("NNNMark");
     mouseIn: boolean;
 
     defaultConfig = {
@@ -182,7 +184,11 @@ class NotesEditor extends Z<"div"> {
         });
         this.$xLineCountInput.whenValueChange((num: number) => {
             this.positionGridSpan = 1350 / num;
-        })
+        });
+        this.$showsNNNListAttachable.whenClickChange((checked) => {
+            this.showsNNNListAttachable = checked;
+        });
+        this.$showsNNNListAttachable.checked = true;
         this.$statusBar.append(
             this.$listOption,
             this.$timeSpanInput,
@@ -192,7 +198,8 @@ class NotesEditor extends Z<"div"> {
             this.$editButton,
             this.$copyButton,
             this.$pasteButton,
-            this.$selectOption
+            this.$selectOption,
+            this.$showsNNNListAttachable
             )
 
         
@@ -532,7 +539,7 @@ class NotesEditor extends Z<"div"> {
         }
         this.attachableTimes = attachableTimes;
         this.timeMap = map;
-        if (true) {
+        if (this.showsNNNListAttachable) {
             const nnnList = this.editor.chart.nnnList;
             this.lookList(nnnList, startBeats, stopBeats, beats);
         }

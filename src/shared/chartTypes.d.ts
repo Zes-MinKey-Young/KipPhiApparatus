@@ -16,6 +16,7 @@ interface ChartDataRPE {
     /** 判定线列表 */
     judgeLineList: JudgeLineDataRPE[];
     chartTime?: number;
+    kpaChartTime?: number;
     multiLineString: string;
     multiScale: number;
 
@@ -31,6 +32,8 @@ interface MetaData {
     RPEVersion: number;
     /** 背景图片路径 */
     background: string;
+    /** 画师名称 */
+    illustration: string;
     /** 谱师名称 */
     charter: string;
     /** 曲师名称 */
@@ -298,7 +301,10 @@ interface ChartDataKPA {
     duration: number;
     info: {
         level: string;
-        name: string
+        name: string;
+        charter: string;
+        illustrator: string;
+        composer: string;
     };
     ui: {
         pause: number;

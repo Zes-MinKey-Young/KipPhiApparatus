@@ -100,10 +100,9 @@
                 alert("服务器未启动");
             }
         </script>
-        <script type="module">
-            const res = await fetch("/VERSION");
-            const version = await res.text();
-            document.getElementById("version").textContent = version;
+        <script src="/dist/version.js"></script>
+        <script>
+            document.getElementById("version").textContent = VERSION;
         </script>
     </body>
 </html>

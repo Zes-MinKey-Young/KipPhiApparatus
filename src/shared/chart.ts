@@ -75,6 +75,9 @@ class Chart {
     // comboMapping: ComboMapping;
     name: string = "unknown";
     level: string = "unknown";
+    composer: string = "unknown";
+    charter: string = "unknown";
+    illustrator: string = "unknown";
     offset: number = 0;
     
     templateEasingLib = new TemplateEasingLib;
@@ -86,7 +89,7 @@ class Chart {
     judgeLineGroups: JudgeLineGroup[] = [];
     duration: number;
 
-
+    // 以分钟计
     chartingTime: number;
     rpeChartingTime: number;
 
@@ -117,7 +120,11 @@ class Chart {
         chart.name = data.META.name;
         chart.level = data.META.level;
         chart.offset = data.META.offset;
+        chart.composer = data.META.composer ?? "unknown";
+        chart.charter = data.META.charter ?? "unknown";
+        chart.illustrator = data.META.illustration ?? "unknown";
         chart.duration = duration;
+        chart.chartingTime = data.kpaChartTime
         chart.rpeChartingTime = data.chartTime ? Math.round(data.chartTime / 60) : 0;
         chart.chartingTime = 0;
         chart.updateCalculator()
@@ -158,6 +165,9 @@ class Chart {
         chart.duration = data.duration;
         chart.name = data.info.name;
         chart.level = data.info.level;
+        chart.illustrator = data.info.illustrator ?? "unknown";
+        chart.composer = data.info.composer ?? "unknown";
+        chart.charter = data.info.charter ?? "unknown";
         chart.offset = data.offset;
         chart.judgeLineGroups = data.judgeLineGroups.map(group => new JudgeLineGroup(group));
         chart.chartingTime = data.chartTime ?? 0;

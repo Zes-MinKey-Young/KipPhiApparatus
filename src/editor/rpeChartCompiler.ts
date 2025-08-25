@@ -58,7 +58,9 @@ class RPEChartCompiler {
             judgeLineList,
             judgeLineGroup: judgeLineGroups,
             multiLineString: '',
-            multiScale: 1.0
+            multiScale: 1.0,
+            chartTime: chart.rpeChartingTime * 60,
+            kpaChartTime: chart.chartingTime,
         };
     }
 

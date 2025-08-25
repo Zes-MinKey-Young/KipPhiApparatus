@@ -43,6 +43,9 @@ class Player {
     lastUncountedTailNNN: NNNOrTail | null = null;
     lastCountedBeats: number = 0;
 
+    showsInfo = false;
+    showsLineID = false;
+
     
     textureMapping: Map<string, ImageBitmap> = new Map();
     
@@ -215,18 +218,17 @@ class Player {
         context.restore()
         context.save()
 
-        const showInfo = settings.get("playerShowInfo");
 
-        const setTransform = (lineOrNull: JudgeLine | null) => {
-            if (!lineOrNull) {
-                context.setTransform(identity.translate(675, 450));
-            } else {
-                context.setTransform(lineOrNull.renderMatrix);
-                context.scale(1, -1)
+
+        if (this.showsInfo) {
+            const setTransform = (lineOrNull: JudgeLine | null) => {
+                if (!lineOrNull) {
+                    context.setTransform(identity.translate(675, 450));
+                } else {
+                    context.setTransform(lineOrNull.renderMatrix);
+                    context.scale(1, -1)
+                }
             }
-        }
-
-        if (showInfo) {
             this.computeCombo();
             context.fillStyle = "#ddd"
             context.font = "40px phigros"
@@ -341,12 +343,15 @@ class Player {
 
 
         context.drawImage(ANCHOR, -10, -10)
-        context.save();
-        context.scale(1, -1);
-        context.fillStyle = "white";
-        context.font = "40px phigros";
-        context.fillText(`#${judgeLine.id} ${judgeLine.name.toLowerCase() === "untitled" ? "" : judgeLine.name}`, 10, 50);
-        context.restore();
+        if (this.showsLineID) {
+            context.save();
+            context.scale(1, -1);
+            context.fillStyle = "white";
+            context.font = "40px phigros";
+                
+            context.fillText(`#${judgeLine.id} ${judgeLine.name.toLowerCase() === "untitled" ? "" : judgeLine.name}`, 10, 50);
+            context.restore();
+        }
 
         /** 判定线的法向量 */
         const nVector: Vector = getVector(theta)[1] // 奇变偶不变，符号看象限(

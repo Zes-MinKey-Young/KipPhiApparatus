@@ -1001,3 +1001,53 @@ class UserScriptEditor extends SideEditor {
     }
     update() {}
 }
+
+class ChartInfoEditor extends SideEditor {
+    $chartTitle  = new ZInputBox();
+    $level       = new ZInputBox();
+    $composer    = new ZInputBox();
+    $charter     = new ZInputBox();
+    $illustrator = new ZInputBox();
+
+    $chartingTime = $("span").css("textAlign", "center");
+    $rpeChartingTime = $("span").css("textAlign", "center");
+    constructor() {
+        super();
+        this.$title.text("Chart Info");
+        this.$body.append(
+            $("span").text("Title"), this.$chartTitle,
+            $("span").text("Difficulty"), this.$level,
+            $("span").text("Composer"), this.$composer,
+            $("span").text("Charter"), this.$charter,
+            $("span").text("Illustrator"), this.$illustrator,
+            $("span").text("Time spent charting here"), this.$chartingTime,
+            $("span").text("Time spent charting in RPE"), this.$rpeChartingTime
+        )
+        this.$chartTitle.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "name", value));
+        })
+        this.$level.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "level", value));
+        })
+        this.$composer.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "composer", value));
+        })
+        this.$charter.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "charter", value));
+        })
+        this.$illustrator.whenValueChange(value => {
+            editor.operationList.do(new ChartPropChangeOperation(editor.chart, "illustrator", value));
+        })
+    }
+    update(): void {
+        const chart = editor.chart;
+        this.$chartTitle.setValue(chart.name);
+        this.$level.setValue(chart.level);
+        this.$composer.setValue(chart.composer);
+        this.$charter.setValue(chart.charter);
+        this.$illustrator.setValue(chart.illustrator);
+        this.$chartingTime.text(formatTime(chart.chartingTime, 0));       // KPA存分
+        this.$rpeChartingTime.text(formatTime(chart.rpeChartingTime, 0)); // RPE存秒，但是已经转换为分了
+
+    }
+}

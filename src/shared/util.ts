@@ -207,6 +207,14 @@ const numNoun = (num: number, singular: string, plural: string = singular + "s")
     }
 }
 
+const numNounWithoutZero = (num: number, singular: string, plural: string = singular + "s") => {
+    if (num === 0) {
+        return ""
+    } else {
+        return numNoun(num, singular, plural)
+    }
+}
+
 const bisearchInsertLeft = (arr: number[], target: number): number => {
     let left = 0, right = arr.length;
     while (left < right) {
@@ -218,4 +226,18 @@ const bisearchInsertLeft = (arr: number[], target: number): number => {
         }
     }
     return left;
+}
+
+const formatTime = (minutes: number, seconds: number) => {
+    if ((seconds === undefined || seconds === 0) && (minutes === undefined || minutes === 0)) {
+        return "0";
+    }
+    if (seconds > 60) {
+        minutes += Math.floor(seconds / 60);
+        seconds %= 60;
+    }
+    const hrs = Math.floor(minutes / 60);
+    minutes %= 60;
+    return numNounWithoutZero(hrs, "hr") + " " + numNounWithoutZero(minutes, "min") + " " + numNounWithoutZero(seconds, "sec");
+
 }
