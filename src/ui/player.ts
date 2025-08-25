@@ -450,9 +450,12 @@ class Player {
             return;
         }
         const beats = this.beats;
+        const timeCalculator = this.chart.timeCalculator;
         const lastNNN: NNNOrTail = this.lastUnplayedNNNode;
         const startingFrom = lastNNN.type === NodeType.TAIL ? Infinity : TimeCalculator.toBeats(lastNNN.startTime);
-        if (startingFrom >= beats) {
+        const needsReset = startingFrom >= beats || timeCalculator.segmentToSeconds(startingFrom, beats) > 0.05;
+        // 超过0.05秒就会认为是快进过来的，这个时候，如果播放会很吵
+        if (needsReset) {
             this.lastUnplayedNNNode = this.chart.nnnList.getNodeAt(beats)
             return;
         }
