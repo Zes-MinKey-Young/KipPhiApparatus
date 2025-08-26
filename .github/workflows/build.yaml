@@ -177,6 +177,8 @@ jobs:
             Copy-Item -Path "css\*" -Destination "kpa-portable\css" -Recurse -Force
           }
           if (Test-Path "server\default.jsonc") {
+            # 确保目标目录存在
+            $null = New-Item -ItemType Directory -Path "kpa-portable\server" -Force
             Copy-Item -Path "server\default.jsonc" -Destination "kpa-portable\server\config.jsonc" -Force
           }
           if (Test-Path "LICENSE") {
