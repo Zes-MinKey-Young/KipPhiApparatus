@@ -135,8 +135,9 @@ jobs:
       - name: Build Windows installer
         run: |
           # 确保 server 文件有执行权限
-          if (Test-Path "server\server-windows-x64") {
-            Copy-Item "server\server-windows-x64" -Destination "server\server.exe"
+          if (Test-Path "server\server-windows-x64.exe") {
+            echo "Path exists"
+            Copy-Item "server\server-windows-x64.exe" -Destination "server\server.exe" -PassThru
           }
           
           # 编译安装包
