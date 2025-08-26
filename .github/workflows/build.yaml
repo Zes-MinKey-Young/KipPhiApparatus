@@ -17,12 +17,13 @@ jobs:
       - name: Get version
         id: get_version
         run: |
-          if [[ "${GITHUB_REF}" == "refs/tags/"* ]]; then
-            VERSION=${GITHUB_REF_NAME#v}
-          else
-            VERSION="dev-$(date +%Y%m%d)"
-          fi
+          # 获取最新的 tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          # 移除 'v' 前缀
+          VERSION=LATEST_TAG
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Latest tag: $LATEST_TAG"
+          echo "Version: $VERSION"
 
   build-server:
     needs: prepare
@@ -101,7 +102,7 @@ jobs:
           $issContent = Get-Content install.iss -Raw
           $issContent = $issContent -replace "AppVersion=.*", "AppVersion=$version"
           $issContent = $issContent -replace "OutputBaseFilename=.*", "OutputBaseFilename=KPA_Setup_v$version"
-          $issContent = $issContent -replace 'Source: "server\server.exe"', 'Source: "server\server-windows-x64.exe"'
+          $issContent = $issContent -replace 'Source: "server\\server\.exe"', 'Source: "server\\server-windows-x64"'
           
           # 保存修改后的文件
           Set-Content install.iss $issContent
