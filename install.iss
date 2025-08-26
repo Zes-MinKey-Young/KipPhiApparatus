@@ -14,7 +14,6 @@ Compression=lzma
 SolidCompression=yes
 ; 安装程序窗口标题
 WindowVisible=True
-LicenseFile=LICENSE
 DisableWelcomePage=no
 WizardStyle=modern
 
@@ -37,8 +36,8 @@ Name: "runapp"; Description: "{cm:RunApp}"; Flags: unchecked
 Filename: "{app}\start.bat"; Description: "启动 KPA"; Tasks: runapp
 
 [Languages]
-Name: "zh"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"; 
-Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "zh"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"; LicenseFile: "license_with_zh.txt"
+Name: "en"; MessagesFile: "compiler:Default.isl"; LicenseFile: "LICENSE"
 
 [Messages]
 zh.WelcomeLabel1=欢迎安装 KPA！
