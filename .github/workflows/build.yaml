@@ -13,6 +13,12 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Debug git tags
+        run: |
+          echo "All tags:"
+          git tag
+          echo "Latest tag:"
+          git describe --tags --abbrev=0 2>/dev/null || echo "No tags found"
       
       - name: Get version
         id: get_version
