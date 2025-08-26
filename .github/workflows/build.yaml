@@ -134,7 +134,7 @@ jobs:
 
       - name: Build Windows installer
         run: |
-          dir
+          dir server\
           # 确保 server 文件有执行权限
           if (Test-Path "server\server-windows-x64") {
             echo "Path exists"
