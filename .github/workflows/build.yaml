@@ -26,10 +26,16 @@ jobs:
       - name: Get version
         id: get_version
         run: |
-          # 获取最新的 tag
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          # 移除 'v' 前缀
-          VERSION=${LATEST_TAG#v}
+          # 获取所有 tags 并排序，获取最新的
+          LATEST_TAG=$(git tag | sort -V | tail -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            # 如果没有 tag，基于日期生成版本号
+            VERSION="0.0.0-$(date +%Y%m%d)"
+            LATEST_TAG="v$VERSION"
+          else
+            # 移除 'v' 前缀
+            VERSION=${LATEST_TAG#v}
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Latest tag: $LATEST_TAG"
           echo "Version: $VERSION"
