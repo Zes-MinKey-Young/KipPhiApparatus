@@ -32,9 +32,6 @@ jobs:
           - os: windows-latest
             target: windows-x64
             platform: windows
-          - os: windows-latest
-            target: windows-arm64
-            platform: windows
           - os: ubuntu-latest
             target: linux-x64
             platform: linux
@@ -82,7 +79,7 @@ jobs:
           name: server-${{ matrix.target }}
           path: server/kpa-server-${{ matrix.target }}${{ matrix.platform == 'windows' && '.exe' || '' }}
 
-  build-windows-installer:
+  build-windows-installer-and-compression:
     needs: [prepare, build-server]
     runs-on: windows-latest
 
@@ -136,14 +133,54 @@ jobs:
             exit 1
           }
 
+      - name: Create portable ZIP archive
+        run: |
+          # 创建便携式 ZIP 包，包含 ISS 文件中指定的内容
+          New-Item -ItemType Directory -Path "kpa-portable" -Force
+          
+          # 复制 ISS 文件中定义的文件和目录
+          if (Test-Path "dist") {
+            Copy-Item -Path "dist\*" -Destination "kpa-portable\dist" -Recurse -Force
+          }
+          if (Test-Path "html") {
+            Copy-Item -Path "html\*" -Destination "kpa-portable\html" -Recurse -Force
+          }
+          if (Test-Path "sound") {
+            Copy-Item -Path "sound\*" -Destination "kpa-portable\sound" -Recurse -Force
+          }
+          if (Test-Path "img") {
+            Copy-Item -Path "img\*" -Destination "kpa-portable\img" -Recurse -Force
+          }
+          if (Test-Path "css") {
+            Copy-Item -Path "css\*" -Destination "kpa-portable\css" -Recurse -Force
+          }
+          if (Test-Path "server\default.jsonc") {
+            Copy-Item -Path "server\default.jsonc" -Destination "kpa-portable\server\config.jsonc" -Force
+          }
+          if (Test-Path "LICENSE") {
+            Copy-Item -Path "LICENSE" -Destination "kpa-portable\LICENSE" -Force
+          }
+          if (Test-Path "start.bat") {
+            Copy-Item -Path "start.bat" -Destination "kpa-portable\start.bat" -Force
+          }
+          
+          # 创建 ZIP 压缩包
+          Compress-Archive -Path "kpa-portable\*" -DestinationPath "kpa-portable-windows-x64.zip" -Force
+
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: kpa-windows-installer
           path: dist/*.exe
+          
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpa-portable-windows-x64
+          path: kpa-portable-windows-x64.zip
 
   release:
-    needs: [prepare, build-server, build-windows-installer]
+    needs: [prepare, build-server, build-windows-installer-and-compression]
     runs-on: ubuntu-latest
 
     steps:
