@@ -112,6 +112,23 @@ jobs:
       - name: Setup Inno Setup
         run: |
           choco install innosetup -y
+          
+
+      - name: Download Chinese Simplified Translation for Inno Setup
+        run: |
+          # 下载简体中文翻译包
+          curl -L https://raw.githubusercontent.com/kira-96/Inno-Setup-Chinese-Simplified-Translation/master/ChineseSimplified.isl -o ChineseSimplified.isl
+          
+          # 将翻译文件复制到 Inno Setup 语言目录
+          $innoPath = "C:\Program Files (x86)\Inno Setup 6"
+          if (Test-Path $innoPath) {
+            $languagesPath = Join-Path $innoPath "Languages"
+            if (Test-Path $languagesPath) {
+              Copy-Item ChineseSimplified.isl -Destination $languagesPath
+              Write-Host "Chinese Simplified translation installed to $languagesPath"
+            }
+          }
+          
 
       - name: Build Windows installer
         run: |
