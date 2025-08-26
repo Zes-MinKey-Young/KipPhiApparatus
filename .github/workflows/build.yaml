@@ -243,8 +243,6 @@ jobs:
           tag_name: v${{ needs.prepare.outputs.version }}
           draft: false
           prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
-          allowUpdates: true
-          allowEmptyFiles: true
           files: |
             ./artifacts/server-windows-x64/kpa-server-windows-x64.exe
             ./artifacts/server-linux-x64/kpa-server-linux-x64
@@ -253,4 +251,4 @@ jobs:
             ./artifacts/kpa-windows-installer/*.exe
             ./artifacts/kpa-portable/*.zip
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
