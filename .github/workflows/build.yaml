@@ -101,6 +101,7 @@ jobs:
           $issContent = Get-Content install.iss -Raw
           $issContent = $issContent -replace "AppVersion=.*", "AppVersion=$version"
           $issContent = $issContent -replace "OutputBaseFilename=.*", "OutputBaseFilename=KPA_Setup_v$version"
+          $issContent = $issContent -replace 'Source: "server\server.exe"', 'Source: "server\server-windows-x64.exe"'
           
           # 保存修改后的文件
           Set-Content install.iss $issContent
