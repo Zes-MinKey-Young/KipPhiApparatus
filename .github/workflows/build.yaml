@@ -20,7 +20,7 @@ jobs:
           # 获取最新的 tag
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           # 移除 'v' 前缀
-          VERSION=LATEST_TAG
+          VERSION=${LATEST_TAG#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Latest tag: $LATEST_TAG"
           echo "Version: $VERSION"
@@ -189,7 +189,7 @@ jobs:
           }
           
           # 创建 ZIP 压缩包
-          Compress-Archive -Path "kpa-portable\*" -DestinationPath "kpa-portable-windows-x64.zip" -Force
+          Compress-Archive -Path "kpa-portable\*" -DestinationPath "kpa-portable.zip" -Force
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
@@ -200,8 +200,8 @@ jobs:
       - name: Upload portable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: kpa-portable-windows-x64
-          path: kpa-portable-windows-x64.zip
+          name: kpa-portable
+          path: kpa-portable.zip
 
   release:
     needs: [prepare, build-server, build-windows-installer-and-compression]
@@ -218,6 +218,8 @@ jobs:
       - name: List artifacts
         run: |
           find ./artifacts -type f
+          echo "=== Detailed listing ==="
+          ls -R ./artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -227,10 +229,11 @@ jobs:
           draft: false
           prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
           files: |
-            ./artifacts/server-windows-x64/kpa-server-windows-x64
+            ./artifacts/server-windows-x64/kpa-server-windows-x64.exe
             ./artifacts/server-linux-x64/kpa-server-linux-x64
             ./artifacts/server-darwin-x64/kpa-server-darwin-x64
             ./artifacts/server-darwin-arm64/kpa-server-darwin-arm64
             ./artifacts/kpa-windows-installer/*.exe
+            ./artifacts/kpa-portable/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
