@@ -137,9 +137,9 @@ jobs:
         run: |
           dir server\
           # 确保 server 文件有执行权限
-          if (Test-Path "server\kpa-server-windows-x64") {
+          if (Test-Path "server\kpa-server-windows-x64.exe") {
             echo "Path exists"
-            Copy-Item "server\kpa-server-windows-x64" -Destination "server\server.exe" -PassThru
+            Copy-Item "server\kpa-server-windows-x64.exe" -Destination "server\server.exe" -PassThru
           }
           
           # 编译安装包
