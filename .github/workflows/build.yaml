@@ -79,6 +79,7 @@ jobs:
         with:
           name: server-${{ matrix.target }}
           path: server/kpa-server-${{ matrix.target }}${{ matrix.platform == 'windows' && '.exe' || '' }}
+          # artifact名字，不是文件名字，踩坑
 
   build-windows-installer-and-compression:
     needs: [prepare, build-server]
@@ -138,7 +139,7 @@ jobs:
           # 确保 server 文件有执行权限
           if (Test-Path "server\server-windows-x64") {
             echo "Path exists"
-            Copy-Item "server\server-windows-x64" -Destination "server\server.exe" -PassThru
+            Copy-Item "server\kpa-server-windows-x64" -Destination "server\server.exe" -PassThru
           }
           
           # 编译安装包
