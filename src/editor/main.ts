@@ -1,30 +1,33 @@
 
 
 
-var editor: Editor, settings: Settings;
+var editor: Editor, settings: Settings, serverApi: ServerApi;
 if (globalThis.document) {
-
-    var serverApi = new ServerApi();
-    serverApi.addEventListener("load", () => {
+    KPA.hack("server", [], [], () => {
+        serverApi = new ServerApi();
+        return serverApi.statusPromise;
+    });
+    KPA.main("editor", [], async () => {
         fetchImage();
         settings = new Settings();
         editor = new Editor();
         const url = new URL(window.location.href);
         const pathname = url.pathname;
         const segs = pathname.split("/");
-        let promise: Promise<[chart: Blob, illustration: Blob, music: Blob]>;
+        let chart, illustration, music;
         if (url.searchParams.get('chart')) {
-            promise = serverApi.getChart(url.searchParams.get('chart'))
+            [chart, illustration, music] = await serverApi.getChart(url.searchParams.get('chart'))
         } else if (url.pathname.startsWith("/Resources/") && segs.length === 3) {
-            promise = serverApi.getChart(segs[2])
+            [chart, illustration, music] = await serverApi.getChart(segs[2])
+        } else {
+            return;
         }
-        if (promise) {
-            promise.then(([chart, illustration, music]) => {
-                editor.readChart(chart);
-                editor.readAudio(music);
-                editor.readImage(illustration);
-            });
-        }
+        editor.readAudio(music);
+        editor.readImage(illustration);
+        editor.readChart(chart);
+    });
+    KPA.main("autosave", ["editor"], () => {
+        
         setInterval(() => {
             const chart = editor.chart;
             if (chart.modified) {
@@ -41,7 +44,6 @@ if (globalThis.document) {
                     });
             }
         }, 60_000)
-
     })
 } else {
     const tc = new TimeCalculator;

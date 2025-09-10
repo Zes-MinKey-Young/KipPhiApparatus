@@ -292,7 +292,7 @@ class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
         "size", "speed", "startTime", "tint", "tintHitEffects", "type",
         "visibleBeats", "yOffset"
     ].map((n) => new BoxOption(n)));
-    readonly $code             = new ZTextArea();
+    readonly $code             = new JSEditor();
     readonly $execute          = new ZButton("Execute").addClass("progressive");
     readonly $snippets         = new ZDropdownOptionBox(Object.keys(snippets).map((n) => new BoxOption(n)))
                                     .css("width", "100%")
@@ -428,7 +428,7 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
         "value",
         "time"
     ].map((x) => new BoxOption(x)));
-    readonly $code          = new ZTextArea();
+    readonly $code          = new JSEditor();
     readonly $execute       = new ZButton("Execute");
     
     readonly $snippets      = new ZDropdownOptionBox(Object.keys(snippets).map((n) => new BoxOption(n)))
@@ -955,7 +955,7 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
 }
 
 class UserScriptEditor extends SideEditor {
-    $script = new ZTextArea().addClass("user-script-editor-script").setValue("");
+    $script = new JSEditor;
     $runBtn = new ZButton("Run").addClass("user-script-editor-run", "progressive");
     constructor() {
         super();

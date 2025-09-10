@@ -5,7 +5,6 @@ type Bool = 1 | 0
 /** 三元组，用带分数表示的时间 */
 type TimeT = [number, number, number]
 type RGB = [number, number, number]
-
 interface ChartDataRPE {
     /** BPM列表 */
     BPMList: BPMSegmentData[];

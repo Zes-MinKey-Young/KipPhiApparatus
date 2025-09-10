@@ -11,6 +11,9 @@ import { parse as parseRPEMetadata } from "./RPEInfoParser.ts";
 import StreamZip from 'node-stream-zip';
 import { EventType, NoteType} from '../dist/chartTypes.d.ts'
 import { networkInterfaces } from 'os';
+import { MIMEType } from 'util';
+
+const MODS_PATH = "../mods/"
 
 
 const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp', '.tiff', '.tif', '.psd', '.ai', '.eps', '.svgz', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp', '.tiff', '.tif', '.psd', '.ai', '.eps', '.svgz']);
@@ -271,6 +274,45 @@ function checkOrCreateRepo(cwd: string) {
         createCmds.forEach(cmd => Bun.spawnSync(generateCommand(cmd, new Date(), "Init"), {cwd}))
     }
 }
+
+async function createEditor() {
+
+    const editorPage = Bun.file("../html/index.html");
+    let editorPageText = await editorPage.text();
+
+    const mods = [];
+    if (await exists(MODS_PATH)) {
+        const modPaths = await readdir(MODS_PATH);
+        console.log(`Found ${modPaths.length} files: ${modPaths.join(", ")}`);
+        for (const path of modPaths) {
+            if (path.endsWith(".js")) {
+                mods.push(`<script src="/mods/${path}"></script>`)
+            } else if (path.endsWith(".mjs")) {
+                mods.push(`<script type="module" src="/mods/${path}"></script>`)
+            } else if (path === ".kpaignore") {
+                continue;
+            } else {
+                // 视为文件夹模块
+                if (await exists(`${MODS_PATH}/${path}/index.mjs`)) {
+                    mods.push(`<script type="module" src="/mods/${path}/index.mjs"></script>`)
+                } else if (await exists(`${MODS_PATH}/${path}/index.js`)) {
+                    mods.push(`<script type="module" src="/mods/${path}/index.js"></script>`)
+                }
+                 else {
+                    console.error(`No index.mjs found in ${path}`)
+                }
+            }
+        }
+    } else {
+        console.log("No mods found.")
+
+    }
+
+
+
+    editorPageText = editorPageText.replace("<!-- INSERT_SCRIPT -->", mods.join("\n"));
+    return new Response(editorPageText, { status: 200, headers: { "Content-Type": "text/html"} });
+}
 Bun.serve({
     tls: (key && cert) ? {
         key: await Bun.file(key).text(),
@@ -283,7 +325,7 @@ Bun.serve({
             return new Response("", { status: 204, headers: { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" }})
         },
         "/html": async () => {
-            return new Response(Bun.file("../html/index.html"), { status: 200 });
+            return await createEditor();
         },
         "/create": {
             GET: async () => {
@@ -458,7 +500,7 @@ Bun.serve({
             });
         },
         "/Resources/:id": async (req: BunRequest) => {
-            return new Response(Bun.file("../html/index.html"))
+            return await createEditor();
         },
         "/Resources/:id/diff": async (req: BunRequest) => {
             return new Response(Bun.file("../html/diff.html"))
@@ -542,6 +584,10 @@ Bun.serve({
             PUT: async (req: BunRequest) => {
                 const url = new URL(req.url);
                 const filename = decodeURIComponent(url.pathname.slice(1));
+                MIMEType
+                if (filename.endsWith(".js") || filename.endsWith(".mjs")) {
+
+                }
                 if (!isSubPath(filename, resolve("../Resources/"))) return new Response("403", { status: 403 });
                 await Bun.write(resolve("../Resources/", filename), req.body);
                 return new Response("OK", { status: 200 });

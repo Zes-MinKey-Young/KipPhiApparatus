@@ -949,6 +949,26 @@ class ZTextArea extends Z<"textarea"> {
     }
 }
 
+interface IJSEditor {
+    getValue(): string;
+    setValue(value: string): void;
+}
+
+class JSEditor extends Z<"div"> {
+    editor: ZTextArea;
+    constructor() {
+        super("div");
+        this.editor = new ZTextArea();
+    }
+    getValue() {
+        return this.editor.getValue();
+    }
+    setValue(value: string): this {
+        this.editor.setValue(value);
+        return this;
+    }
+}
+
 class ZCollapseController extends Z<"div"> {
     targets: Z<HTMLElementTagName>[] = [];
     constructor(private _folded: boolean, stopsPropagation: boolean = true) {
