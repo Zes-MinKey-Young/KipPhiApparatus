@@ -359,12 +359,24 @@ class Player {
         // 法向量是单位向量，分母是1，不写
         /** the distance between the center and the line */
         const innerProd = innerProduct(toCenter, nVector)
-        const getYs = (offset: number) => {
+        const getYs = judgeLine.cover ? (offset: number) => {
             
             const distance: number = Math.abs(innerProd + offset);
             let startY: number, endY: number;
             if (distance < RENDER_SCOPE) {
-                startY = 0;
+                startY = 0; // 0
+                endY = distance + RENDER_SCOPE
+            } else {
+                startY = distance - RENDER_SCOPE
+                endY = distance + RENDER_SCOPE
+            }
+            return [startY, endY]
+        } : (offset: number) => {
+            
+            const distance: number = Math.abs(innerProd + offset);
+            let startY: number, endY: number;
+            if (distance < RENDER_SCOPE) {
+                startY = distance - RENDER_SCOPE; // 显示线下音符
                 endY = distance + RENDER_SCOPE
             } else {
                 startY = distance - RENDER_SCOPE
@@ -625,7 +637,7 @@ class Player {
         // console.log(NoteType[note.type])
         const opac = note.alpha < 255
         if (opac) {
-            context.save()
+            context.save();
             context.globalAlpha = note.alpha / 255;
         }
         if (note.type === NoteType.hold) {

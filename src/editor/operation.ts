@@ -887,7 +887,7 @@ class JudgeLineRenameOperation extends Operation {
     }
 }
 
-type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture";
+type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture" | "cover";
 
 class JudgeLinePropChangeOperation<T extends JudgeLinePropName> extends Operation {
     updatesEditor = true;

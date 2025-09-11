@@ -689,6 +689,7 @@ async function searchTexture(prefix: string) {
 }
 
 class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
+    readonly $cover             = new ZSwitch("no", "yes").setAsChecked()
     readonly $father            = new ZInputBox("-1");
     readonly $texture           = new ZSearchBox(searchTexture);
     readonly $anchor            = new ZInputBox("0.5, 0.5");
@@ -741,6 +742,9 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
 
         this.$title.text("Judge Line");
         this.$body.append(
+            $("span").text("Cover"), this.$cover,
+            $("span").text("Notes under the line of its side will not be rendered if `Cover` is set to true.")
+                     .addClass("side-editor-info"),
             $("span").text("Father"), this.$father,
             $("span").text("Texture"), this.$texture,
             $("span").text("Anchor"), this.$anchor,
@@ -756,6 +760,13 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
             this.$eventNodeSequence, this.$newEventSeqName,
             this.$setAsBindNote
         );
+        this.$cover.whenClickChange((checked: boolean) => {
+            if (!this.target) {
+                notify("The target of this editor has been garbage-collected");
+                return;
+            }
+            editor.operationList.do(new JudgeLinePropChangeOperation(this.target, "cover", checked));
+        });
         this.$father.whenValueChange((content) => {
             if (!this.target) {
                 notify("The target of this editor has been garbage-collected");

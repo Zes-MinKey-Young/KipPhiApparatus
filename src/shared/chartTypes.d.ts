@@ -259,6 +259,7 @@ interface NNListDataKPA {
 }
 
 interface JudgeLineDataKPA {
+    cover: boolean;
     id: number;
     group: number;
     nnLists: {[k: string]: NNListDataKPA};

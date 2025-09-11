@@ -226,6 +226,10 @@ class ZSwitch extends ZButton {
         })
         return this;
     }
+    setAsChecked() {
+        this.checked = true;
+        return this;
+    }
 }
 
 class ZValueChangeEvent extends Event {

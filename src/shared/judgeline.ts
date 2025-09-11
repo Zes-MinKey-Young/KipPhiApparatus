@@ -139,6 +139,7 @@ class JudgeLine {
         line.rotatesWithFather = data.rotatesWithFather;
         line.anchor = data.anchor ?? [0.5, 0.5];
         line.texture = data.Texture || "line.png";
+        line.cover = data.cover ?? true;
 
 
         chart.judgeLineGroups[data.group].add(line);
@@ -468,7 +469,8 @@ class JudgeLine {
             children: children,
             eventLayers: eventLayers,
             hnLists: hnListsData,
-            nnLists: nnListsData
+            nnLists: nnListsData,
+            cover: this.cover
         }
     }
 
