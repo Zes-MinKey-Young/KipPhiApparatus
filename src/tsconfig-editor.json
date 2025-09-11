@@ -12,6 +12,9 @@
         "ui/ui.ts", "shared/util.ts",
         "editor/operation.ts",
         "editor/bezierEditor.ts", "editor/sideEditor.ts","editor/selectionManager.ts","editor/eventCurveEditor.ts","editor/notesEditor.ts","editor/editor.ts", "editor/rpeChartCompiler.ts","shared/matrix.ts" ,"shared/audio.ts","shared/images.ts","ui/player.ts",
-        "shared/server.ts", "shared/settings.ts", "editor/main.ts"
+        "shared/server.ts", "shared/settings.ts",
+        
+        "editor/loader.ts",
+        "editor/main.ts"
     ]
 }

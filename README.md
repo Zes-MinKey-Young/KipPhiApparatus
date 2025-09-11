@@ -74,3 +74,20 @@ Since this repository includes the .vscode folder, no additional configuration i
 KPA uses Bun to compile local server, at least Windows 10 is required. If you encounter a bug or have some good suggestions, please create an issue in this repository. You can also join the KPA QQ group: 478824121.
 
 Versions without Bun may be released in the future.
+
+# 致谢/Acknowledgements
+- Phigros官方
+- [cmdysj](https://space.bilibili.com/252635690)
+- [lchzh3473](https://github.com/lchzh3473)
+- [HLMC](https://github.com/2278535805)
+- kbw
+- 其他为奇谱发生器提出建议的群友/Other QQ group members who provided suggestions for KPA
+
+
+以下谱师的谱面在内测阶段参与了测试，帮助本软件发现问题，完善了功能适配，虽非主动提供，亦罗列于此：
+
+The following charters' charts were adopted to tests in beta stage, which help KPA to spot bugs and complete the implementations of chart features. Although not actively provided, they are listed here:
+- [Sildild](https://space.bilibili.com/511436432) (Singularity at 2.64e+6 BPM, Designant.)
+- [拾進制百零六_6A9EC0](https://space.bilibili.com/1073828559) (Qualia -ideaesthesia-, Freaky Undulations ~Noble Knights of Tune~)
+- [Naptie](https://github.com/Naptie) and other 4 charters ([Designant.](https://www.bilibili.com/video/BV1SXfEYxEEB))
+- cmdysj (ウミユリ海底譚)

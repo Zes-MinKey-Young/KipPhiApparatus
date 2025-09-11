@@ -576,7 +576,15 @@ Bun.serve({
                 if (!isSubPath(filename, resolve("../"))) return new Response("403", { status: 403 });
                 const file = Bun.file(resolve("../", filename));
                 if (await file.exists()) {
-                    return new Response(file);
+                    const stats = await file.stat();
+                    const lastModified = stats.mtime;
+                    if (req.headers.get("if-modified-since") === lastModified.toUTCString()) {
+                        return new Response(null, { status: 304 });
+                    }
+                    return new Response(file, { headers: {
+                        "Last-Modified": lastModified.toUTCString(),
+                        "Cache-Control": "no-cache"
+                    } });
                 }
 
                 return new Response("404", { status: 404 });
