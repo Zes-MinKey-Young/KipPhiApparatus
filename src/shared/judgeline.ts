@@ -52,7 +52,7 @@ class JudgeLine {
         line.name = data.Name;
         chart.judgeLineGroups[data.Group].add(line);
         line.cover = Boolean(data.isCover);
-        line.rotatesWithFather = data.rotate_with_father;
+        line.rotatesWithFather = data.rotateWithFather;
         line.anchor = data.anchor ?? [0.5, 0.5];
 
         // Process UI

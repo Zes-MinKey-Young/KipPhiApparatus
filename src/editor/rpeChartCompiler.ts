@@ -85,7 +85,7 @@ class RPEChartCompiler {
             isCover: judgeLine.cover ? 1 : 0,
             numOfNotes: notes.length,
             anchor: judgeLine.anchor,
-            rotate_with_father: judgeLine.rotatesWithFather,
+            rotateWithFather: judgeLine.rotatesWithFather,
             isGif: 0
         };
     }

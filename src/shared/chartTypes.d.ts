@@ -205,7 +205,7 @@ interface JudgeLineDataRPE {
     /** 背景是否为GIF */
     isGif: Bool;
 
-    rotate_with_father?: boolean;
+    rotateWithFather?: boolean;
     attachUI?: "pause" | "combonumber" | "combo" | "score" | "bar" | "name" | "level";
 
     /** Decides how scaleX events affect notes. Defaults to 0.
