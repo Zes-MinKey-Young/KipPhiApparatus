@@ -1,5 +1,5 @@
 /**
- *
+ * 
  */
 class BPMStartNode extends EventStartNode {
     spb: number;

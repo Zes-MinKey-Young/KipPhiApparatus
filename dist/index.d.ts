@@ -1,5 +1,5 @@
-declare const VERSION = 170;
-declare const VERSION_STRING = "1.7.0";
+declare const VERSION = 180;
+declare const VERSION_STRING = "1.8.0-alpha1";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -1025,6 +1025,7 @@ declare class ZSwitch extends ZButton {
     set checked(val: boolean);
     constructor(innerText: string, checkedText?: string);
     whenClickChange(callback: (checked: boolean, e: Event) => any): this;
+    setAsChecked(): this;
 }
 declare class ZValueChangeEvent extends Event {
     constructor();
@@ -1245,6 +1246,16 @@ declare class ZTextArea extends Z<"textarea"> {
     setValue(value: string): this;
     get value(): string;
     set value(value: string);
+}
+interface IJSEditor {
+    getValue(): string;
+    setValue(value: string): void;
+}
+declare class JSEditor extends Z<"div"> {
+    editor: ZTextArea;
+    constructor();
+    getValue(): string;
+    setValue(value: string): this;
 }
 declare class ZCollapseController extends Z<"div"> {
     private _folded;
@@ -1611,7 +1622,7 @@ declare class JudgeLineRenameOperation extends Operation {
     do(): void;
     undo(): void;
 }
-type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture";
+type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture" | "cover";
 declare class JudgeLinePropChangeOperation<T extends JudgeLinePropName> extends Operation {
     judgeLine: JudgeLine;
     field: T;
@@ -1790,7 +1801,7 @@ declare class MultiNoteEditor extends SideEntityEditor<Set<Note>> {
     readonly $reverse: ZButton;
     readonly $delete: ZButton;
     readonly $propOptionBox: ZDropdownOptionBox;
-    readonly $code: ZTextArea;
+    readonly $code: JSEditor;
     readonly $execute: ZButton;
     readonly $snippets: ZDropdownOptionBox;
     readonly $fillDensityInput: ZFractionInput;
@@ -1804,7 +1815,7 @@ declare class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
     readonly $delete: ZButton;
     readonly $startEndOptionBox: ZDropdownOptionBox;
     readonly $propOptionBox: ZDropdownOptionBox;
-    readonly $code: ZTextArea;
+    readonly $code: JSEditor;
     readonly $execute: ZButton;
     readonly $snippets: ZDropdownOptionBox;
     constructor();
@@ -1835,6 +1846,7 @@ declare class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode
 }
 declare function searchTexture(prefix: string): Promise<string[]>;
 declare class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
+    readonly $cover: ZSwitch;
     readonly $father: ZInputBox;
     readonly $texture: ZSearchBox;
     readonly $anchor: ZInputBox;
@@ -1857,7 +1869,7 @@ declare class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     updateAttach(): void;
 }
 declare class UserScriptEditor extends SideEditor {
-    $script: ZTextArea;
+    $script: JSEditor;
     $runBtn: ZButton;
     constructor();
     update(): void;
@@ -2474,4 +2486,79 @@ declare class Settings {
     get<K extends keyof SettingEntries>(item: K): SettingEntries[K];
     set<K extends keyof SettingEntries>(item: K, val: SettingEntries[K]): void;
 }
-declare var editor: Editor, settings: Settings;
+type ImportFn = (name: string) => any;
+type ModCode = (exports: any) => void | Promise<any>;
+declare enum ModuleStatus {
+    Unloaded = 0,
+    Loading = 1,
+    Loaded = 2,
+    Failed = 3
+}
+declare class Module {
+    name: string;
+    code: ModCode;
+    usedBy: Module[];
+    dependencies: string[];
+    depMods: Module[];
+    conflicts: string[];
+    status: ModuleStatus;
+    exports: any;
+    constructor(name: string, code: ModCode);
+}
+declare class KPA {
+    /** 所有魔改 */
+    static readonly hacks: Map<string, Module>;
+    /** 所有核心功能 */
+    static readonly cores: Map<string, Module>;
+    /** 所有扩展 */
+    static readonly extensions: Map<string, Module>;
+    /**
+     * 定义一个魔改
+     * @param name 标识符
+     * @param dependencies 所依赖的魔改的标识符
+     * @param conflicts 与之冲突的魔改的标识符
+     * @param code 魔改所运行的函数
+     */
+    static hack(name: string, dependencies: string[], conflicts: string[], code: ModCode): void;
+    /**
+     * 定义一个扩展
+     * @param name 标识符
+     * @param dependencies 所依赖的扩展的标识符
+     * @param conflicts 与之冲突的扩展的标识符
+     * @param code 扩展所运行的函数
+     */
+    static ext(name: string, dependencies: string[], conflicts: string[], code: ModCode): void;
+    /**
+     * 定义一个核心功能
+     * @param name 标识符
+     * @param dependencies 所依赖的核心功能的标识符
+     * @param code 核心功能所运行的函数
+     */
+    static main(name: string, dependencies: string[], code: ModCode): void;
+    /**
+     * 执行所有模组
+     * 全生命周期只调用一次
+     */
+    static work(): Promise<void>;
+    /**
+     * 尝试加载模组，如果依赖尚未加载，则不会加载。
+     * 加载完此模组后会尝试加载以来它的模组
+     * @param mod
+     * @returns
+     */
+    static tryLoad(mod: Module): Promise<void>;
+    /**
+     * 引用其他模组的导出内容
+     * @param name
+     * @returns
+     */
+    static require(name: string): any;
+    static classBuffer: Function;
+    /**
+     * 强行修改一个脚本作用域中的类
+     * @param con 类构造器
+     * @param name 类名，默认从con.name获得
+     */
+    static hackClass(con: Function, name?: string): void;
+}
+declare var editor: Editor, settings: Settings, serverApi: ServerApi;

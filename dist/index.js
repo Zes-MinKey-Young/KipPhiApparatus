@@ -7,8 +7,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-const VERSION = 170;
-const VERSION_STRING = "1.7.0";
+const VERSION = 180;
+const VERSION_STRING = "1.8.0-alpha1";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -1227,7 +1227,7 @@ class JudgeLine {
         line.name = data.Name;
         chart.judgeLineGroups[data.Group].add(line);
         line.cover = Boolean(data.isCover);
-        line.rotatesWithFather = data.rotate_with_father;
+        line.rotatesWithFather = data.rotateWithFather;
         line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
         // Process UI
         if (data.attachUI) {
@@ -1306,13 +1306,14 @@ class JudgeLine {
         return line;
     }
     static fromKPAJSON(isOld, chart, id, data, templates, timeCalculator) {
-        var _a;
+        var _a, _b;
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
         line.rotatesWithFather = data.rotatesWithFather;
         line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
         line.texture = data.Texture || "line.png";
+        line.cover = (_b = data.cover) !== null && _b !== void 0 ? _b : true;
         chart.judgeLineGroups[data.group].add(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
@@ -1635,7 +1636,8 @@ class JudgeLine {
             children: children,
             eventLayers: eventLayers,
             hnLists: hnListsData,
-            nnLists: nnListsData
+            nnLists: nnListsData,
+            cover: this.cover
         };
     }
     updateEffectiveBeats(EB) {
@@ -3107,6 +3109,10 @@ class ZSwitch extends ZButton {
         });
         return this;
     }
+    setAsChecked() {
+        this.checked = true;
+        return this;
+    }
 }
 class ZValueChangeEvent extends Event {
     constructor() {
@@ -3761,6 +3767,19 @@ class ZTextArea extends Z {
     }
     set value(value) {
         this.element.value = value;
+    }
+}
+class JSEditor extends Z {
+    constructor() {
+        super("div");
+        this.editor = new ZTextArea();
+    }
+    getValue() {
+        return this.editor.getValue();
+    }
+    setValue(value) {
+        this.editor.setValue(value);
+        return this;
     }
 }
 class ZCollapseController extends Z {
@@ -5359,7 +5378,7 @@ class MultiNoteEditor extends SideEntityEditor {
             "size", "speed", "startTime", "tint", "tintHitEffects", "type",
             "visibleBeats", "yOffset"
         ].map((n) => new BoxOption(n)));
-        this.$code = new ZTextArea();
+        this.$code = new JSEditor();
         this.$execute = new ZButton("Execute").addClass("progressive");
         this.$snippets = new ZDropdownOptionBox(Object.keys(snippets).map((n) => new BoxOption(n)))
             .css("width", "100%");
@@ -5474,7 +5493,7 @@ class MultiNodeEditor extends SideEntityEditor {
             "value",
             "time"
         ].map((x) => new BoxOption(x)));
-        this.$code = new ZTextArea();
+        this.$code = new JSEditor();
         this.$execute = new ZButton("Execute");
         this.$snippets = new ZDropdownOptionBox(Object.keys(snippets).map((n) => new BoxOption(n)))
             .css("width", "100%");
@@ -5695,6 +5714,7 @@ function searchTexture(prefix) {
 class JudgeLineInfoEditor extends SideEntityEditor {
     constructor() {
         super();
+        this.$cover = new ZSwitch("no", "yes").setAsChecked();
         this.$father = new ZInputBox("-1");
         this.$texture = new ZSearchBox(searchTexture);
         this.$anchor = new ZInputBox("0.5, 0.5");
@@ -5733,7 +5753,15 @@ class JudgeLineInfoEditor extends SideEntityEditor {
         }
         this.$attachUI.attach(...arr$element);
         this.$title.text("Judge Line");
-        this.$body.append($("span").text("Father"), this.$father, $("span").text("Texture"), this.$texture, $("span").text("Anchor"), this.$anchor, $("span").text("Group"), this.$group, $("span").text("Attach UI"), this.$attachUI, ...arr$element, $("span").text("Rotates with father"), this.$rotatesWithFather, $("span").text("New Group"), $("div").append(this.$newGroup, this.$createGroup), $("span").text("New Line"), this.$createLine, $("span").text("del"), this.$del, this.$eventNodeSequence, this.$newEventSeqName, this.$setAsBindNote);
+        this.$body.append($("span").text("Cover"), this.$cover, $("span").text("Notes under the line of its side will not be rendered if `Cover` is set to true.")
+            .addClass("side-editor-info"), $("span").text("Father"), this.$father, $("span").text("Texture"), this.$texture, $("span").text("Anchor"), this.$anchor, $("span").text("Group"), this.$group, $("span").text("Attach UI"), this.$attachUI, ...arr$element, $("span").text("Rotates with father"), this.$rotatesWithFather, $("span").text("New Group"), $("div").append(this.$newGroup, this.$createGroup), $("span").text("New Line"), this.$createLine, $("span").text("del"), this.$del, this.$eventNodeSequence, this.$newEventSeqName, this.$setAsBindNote);
+        this.$cover.whenClickChange((checked) => {
+            if (!this.target) {
+                notify("The target of this editor has been garbage-collected");
+                return;
+            }
+            editor.operationList.do(new JudgeLinePropChangeOperation(this.target, "cover", checked));
+        });
         this.$father.whenValueChange((content) => {
             if (!this.target) {
                 notify("The target of this editor has been garbage-collected");
@@ -5933,7 +5961,7 @@ class JudgeLineInfoEditor extends SideEntityEditor {
 class UserScriptEditor extends SideEditor {
     constructor() {
         super();
-        this.$script = new ZTextArea().addClass("user-script-editor-script").setValue("");
+        this.$script = new JSEditor;
         this.$runBtn = new ZButton("Run").addClass("user-script-editor-run", "progressive");
         this.addClass("user-script-editor");
         this.$body.append(this.$script, this.$runBtn);
@@ -8474,7 +8502,7 @@ class RPEChartCompiler {
             isCover: judgeLine.cover ? 1 : 0,
             numOfNotes: notes.length,
             anchor: judgeLine.anchor,
-            rotate_with_father: judgeLine.rotatesWithFather,
+            rotateWithFather: judgeLine.rotatesWithFather,
             isGif: 0
         };
     }
@@ -9082,11 +9110,23 @@ class Player {
         // 法向量是单位向量，分母是1，不写
         /** the distance between the center and the line */
         const innerProd = innerProduct(toCenter, nVector);
-        const getYs = (offset) => {
+        const getYs = judgeLine.cover ? (offset) => {
             const distance = Math.abs(innerProd + offset);
             let startY, endY;
             if (distance < RENDER_SCOPE) {
-                startY = 0;
+                startY = 0; // 0
+                endY = distance + RENDER_SCOPE;
+            }
+            else {
+                startY = distance - RENDER_SCOPE;
+                endY = distance + RENDER_SCOPE;
+            }
+            return [startY, endY];
+        } : (offset) => {
+            const distance = Math.abs(innerProd + offset);
+            let startY, endY;
+            if (distance < RENDER_SCOPE) {
+                startY = distance - RENDER_SCOPE; // 显示线下音符
                 endY = distance + RENDER_SCOPE;
             }
             else {
@@ -9635,30 +9675,188 @@ class Settings {
         localStorage.setItem("settings", JSON.stringify(this.cache));
     }
 }
-var editor, settings;
+var ModuleStatus;
+(function (ModuleStatus) {
+    ModuleStatus[ModuleStatus["Unloaded"] = 0] = "Unloaded";
+    ModuleStatus[ModuleStatus["Loading"] = 1] = "Loading";
+    ModuleStatus[ModuleStatus["Loaded"] = 2] = "Loaded";
+    ModuleStatus[ModuleStatus["Failed"] = 3] = "Failed";
+})(ModuleStatus || (ModuleStatus = {}));
+class Module {
+    constructor(name, code) {
+        this.name = name;
+        this.code = code;
+        this.usedBy = [];
+        this.depMods = [];
+        this.status = ModuleStatus.Unloaded;
+        this.exports = {};
+    }
+}
+class KPA {
+    /**
+     * 定义一个魔改
+     * @param name 标识符
+     * @param dependencies 所依赖的魔改的标识符
+     * @param conflicts 与之冲突的魔改的标识符
+     * @param code 魔改所运行的函数
+     */
+    static hack(name, dependencies, conflicts, code) {
+        const mod = new Module(name, code);
+        mod.dependencies = dependencies;
+        mod.conflicts = conflicts;
+        KPA.hacks.set(name, mod);
+    }
+    /**
+     * 定义一个扩展
+     * @param name 标识符
+     * @param dependencies 所依赖的扩展的标识符
+     * @param conflicts 与之冲突的扩展的标识符
+     * @param code 扩展所运行的函数
+     */
+    static ext(name, dependencies, conflicts, code) {
+        const mod = new Module(name, code);
+        mod.dependencies = dependencies;
+        mod.conflicts = conflicts;
+        KPA.extensions.set(name, mod);
+    }
+    /**
+     * 定义一个核心功能
+     * @param name 标识符
+     * @param dependencies 所依赖的核心功能的标识符
+     * @param code 核心功能所运行的函数
+     */
+    static main(name, dependencies, code) {
+        const conflicts = [];
+        const mod = new Module(name, code);
+        mod.dependencies = dependencies;
+        mod.conflicts = conflicts;
+        KPA.cores.set(name, mod);
+    }
+    /**
+     * 执行所有模组
+     * 全生命周期只调用一次
+     */
+    static work() {
+        return __awaiter(this, void 0, void 0, function* () {
+            for (const modLists of [KPA.hacks, KPA.extensions]) {
+                for (const [name, mod] of modLists) {
+                    for (const dep of mod.dependencies) {
+                        const depMod = modLists.get(dep);
+                        if (!depMod) {
+                            notify(`Module ${name} depends on ${dep}, which is not a valid module.`);
+                            throw new Error(`Module ${name} depends on ${dep}, which is not a valid module.`);
+                        }
+                        depMod.usedBy.push(mod);
+                        mod.depMods.push(depMod);
+                    }
+                    for (const conflict of mod.conflicts) {
+                        if (modLists.has(conflict)) {
+                            notify(`Module ${name} conflicts with ${conflict}.`);
+                            throw new Error(`Module ${name} conflicts with ${conflict}.`);
+                        }
+                    }
+                }
+            }
+            for (const [_, mod] of KPA.hacks) {
+                yield KPA.tryLoad(mod);
+            }
+            for (const [_, mod] of KPA.cores) {
+                yield KPA.tryLoad(mod);
+            }
+            for (const [_, mod] of KPA.extensions) {
+                yield KPA.tryLoad(mod);
+            }
+        });
+    }
+    /**
+     * 尝试加载模组，如果依赖尚未加载，则不会加载。
+     * 加载完此模组后会尝试加载以来它的模组
+     * @param mod
+     * @returns
+     */
+    static tryLoad(mod) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!mod.depMods.every(m => m.status === ModuleStatus.Loaded)) {
+                return;
+            }
+            mod.status = ModuleStatus.Loading;
+            const retval = mod.code(mod.exports);
+            if (retval instanceof Promise) {
+                yield retval;
+            }
+            console.log(`Loaded ${mod.name}`);
+            mod.usedBy.forEach((m) => __awaiter(this, void 0, void 0, function* () { return yield KPA.tryLoad(m); }));
+        });
+    }
+    /**
+     * 引用其他模组的导出内容
+     * @param name
+     * @returns
+     */
+    static require(name) {
+        if (name.startsWith("hack.")) {
+            return KPA.hacks.get(name.substring(5)).exports;
+        }
+        else if (name.startsWith("ext.")) {
+            return KPA.extensions.get(name.substring(4)).exports;
+        }
+        else if (name.startsWith("core.")) {
+            return KPA.cores.get(name.substring(5)).exports;
+        }
+        else {
+            notify(`Invalid module name: ${name}`);
+            throw new Error(`Invalid module name: ${name}`);
+        }
+    }
+    /**
+     * 强行修改一个脚本作用域中的类
+     * @param con 类构造器
+     * @param name 类名，默认从con.name获得
+     */
+    static hackClass(con, name = con.name) {
+        if (!/^[A-Za-z][a-zA-Z0-9_]*$/.test(name)) {
+            throw new Error(`Invalid class name: ${name}`);
+        }
+        this.classBuffer = con;
+        const script = document.createElement("script");
+        script.textContent = `${name} = KPA.classBuffer;`;
+        document.body.appendChild(script);
+    }
+}
+/** 所有魔改 */
+KPA.hacks = new Map();
+/** 所有核心功能 */
+KPA.cores = new Map();
+/** 所有扩展 */
+KPA.extensions = new Map();
+var editor, settings, serverApi;
 if (globalThis.document) {
-    var serverApi = new ServerApi();
-    serverApi.addEventListener("load", () => {
+    KPA.hack("server", [], [], () => {
+        serverApi = new ServerApi();
+        return serverApi.statusPromise;
+    });
+    KPA.main("editor", [], () => __awaiter(this, void 0, void 0, function* () {
         fetchImage();
         settings = new Settings();
         editor = new Editor();
         const url = new URL(window.location.href);
         const pathname = url.pathname;
         const segs = pathname.split("/");
-        let promise;
+        let chart, illustration, music;
         if (url.searchParams.get('chart')) {
-            promise = serverApi.getChart(url.searchParams.get('chart'));
+            [chart, illustration, music] = yield serverApi.getChart(url.searchParams.get('chart'));
         }
         else if (url.pathname.startsWith("/Resources/") && segs.length === 3) {
-            promise = serverApi.getChart(segs[2]);
+            [chart, illustration, music] = yield serverApi.getChart(segs[2]);
         }
-        if (promise) {
-            promise.then(([chart, illustration, music]) => {
-                editor.readChart(chart);
-                editor.readAudio(music);
-                editor.readImage(illustration);
-            });
+        else {
+            return;
         }
+        editor.readAudio(music);
+        editor.readImage(illustration);
+        editor.readChart(chart);
+    }));
+    KPA.main("autosave", ["editor"], () => {
         setInterval(() => {
             const chart = editor.chart;
             if (chart.modified) {

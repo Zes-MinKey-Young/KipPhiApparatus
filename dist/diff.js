@@ -7,8 +7,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-const VERSION = 170;
-const VERSION_STRING = "1.7.0";
+const VERSION = 180;
+const VERSION_STRING = "1.8.0-alpha1";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -1403,7 +1403,7 @@ class JudgeLine {
         line.name = data.Name;
         chart.judgeLineGroups[data.Group].add(line);
         line.cover = Boolean(data.isCover);
-        line.rotatesWithFather = data.rotate_with_father;
+        line.rotatesWithFather = data.rotateWithFather;
         line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
         // Process UI
         if (data.attachUI) {
@@ -1482,13 +1482,14 @@ class JudgeLine {
         return line;
     }
     static fromKPAJSON(isOld, chart, id, data, templates, timeCalculator) {
-        var _a;
+        var _a, _b;
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
         line.rotatesWithFather = data.rotatesWithFather;
         line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
         line.texture = data.Texture || "line.png";
+        line.cover = (_b = data.cover) !== null && _b !== void 0 ? _b : true;
         chart.judgeLineGroups[data.group].add(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
@@ -1811,7 +1812,8 @@ class JudgeLine {
             children: children,
             eventLayers: eventLayers,
             hnLists: hnListsData,
-            nnLists: nnListsData
+            nnLists: nnListsData,
+            cover: this.cover
         };
     }
     updateEffectiveBeats(EB) {
@@ -3283,6 +3285,10 @@ class ZSwitch extends ZButton {
         });
         return this;
     }
+    setAsChecked() {
+        this.checked = true;
+        return this;
+    }
 }
 class ZValueChangeEvent extends Event {
     constructor() {
@@ -3939,6 +3945,19 @@ class ZTextArea extends Z {
         this.element.value = value;
     }
 }
+class JSEditor extends Z {
+    constructor() {
+        super("div");
+        this.editor = new ZTextArea();
+    }
+    getValue() {
+        return this.editor.getValue();
+    }
+    setValue(value) {
+        this.editor.setValue(value);
+        return this;
+    }
+}
 class ZCollapseController extends Z {
     constructor(_folded, stopsPropagation = true) {
         super("div");
@@ -4289,11 +4308,23 @@ class Player {
         // 法向量是单位向量，分母是1，不写
         /** the distance between the center and the line */
         const innerProd = innerProduct(toCenter, nVector);
-        const getYs = (offset) => {
+        const getYs = judgeLine.cover ? (offset) => {
             const distance = Math.abs(innerProd + offset);
             let startY, endY;
             if (distance < RENDER_SCOPE) {
-                startY = 0;
+                startY = 0; // 0
+                endY = distance + RENDER_SCOPE;
+            }
+            else {
+                startY = distance - RENDER_SCOPE;
+                endY = distance + RENDER_SCOPE;
+            }
+            return [startY, endY];
+        } : (offset) => {
+            const distance = Math.abs(innerProd + offset);
+            let startY, endY;
+            if (distance < RENDER_SCOPE) {
+                startY = distance - RENDER_SCOPE; // 显示线下音符
                 endY = distance + RENDER_SCOPE;
             }
             else {

@@ -1,2 +1,2 @@
-var VERSION = 170;
-var VERSION_STRING = "1.7.0";
+var VERSION = 180;
+var VERSION_STRING = "1.8.0-alpha1";

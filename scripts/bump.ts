@@ -50,13 +50,13 @@ async function main() {
 
 
     const versionTsFileText = await versionTsFile.text();
-    const versionInTs = /const VERSION_STRING = "([\.\d]+)";/.exec(versionTsFileText)
+    const versionInTs = /const VERSION_STRING = "([\.\dA-Za-z\-]+)";/.exec(versionTsFileText)
     console.log(`version.ts里是${versionInTs}。`);
 
     if (!versionInTs || versionInTs[1] !== nextVersion) {
         prompt("version.ts里不是这个呀，我帮你改一下？");
 
-        const target = `const VERSION = ${nextVersion.replaceAll(".", "")};\nconst VERSION_STRING = "${nextVersion}";\n`
+        const target = `const VERSION = ${nextVersion.replaceAll(/(\.|\-alpha\d|\-beta\d)/g, "")};\nconst VERSION_STRING = "${nextVersion}";\n`
         
         await Bun.write(versionTsFile, target);
         console.log(`已将${versionTsFileText}修改为${target}。`)

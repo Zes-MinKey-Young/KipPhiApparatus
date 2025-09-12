@@ -1,5 +1,5 @@
-declare const VERSION = 170;
-declare const VERSION_STRING = "1.7.0";
+declare const VERSION = 180;
+declare const VERSION_STRING = "1.8.0-alpha1";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -1083,6 +1083,7 @@ declare class ZSwitch extends ZButton {
     set checked(val: boolean);
     constructor(innerText: string, checkedText?: string);
     whenClickChange(callback: (checked: boolean, e: Event) => any): this;
+    setAsChecked(): this;
 }
 declare class ZValueChangeEvent extends Event {
     constructor();
@@ -1303,6 +1304,16 @@ declare class ZTextArea extends Z<"textarea"> {
     setValue(value: string): this;
     get value(): string;
     set value(value: string);
+}
+interface IJSEditor {
+    getValue(): string;
+    setValue(value: string): void;
+}
+declare class JSEditor extends Z<"div"> {
+    editor: ZTextArea;
+    constructor();
+    getValue(): string;
+    setValue(value: string): this;
 }
 declare class ZCollapseController extends Z<"div"> {
     private _folded;

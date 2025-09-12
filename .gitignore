@@ -11,3 +11,7 @@ server/config.jsonc
 *.pem
 node_modules
 *.log
+pgrfmwiki/*.ts
+pgrfmwiki/d.json
+pgrfmwiki/package.json
+pgrfmwiki/bun.lock
