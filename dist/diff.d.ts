@@ -1,5 +1,5 @@
 declare const VERSION = 180;
-declare const VERSION_STRING = "1.8.0-alpha1";
+declare const VERSION_STRING = "1.8.0-alpha2";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection

@@ -8,7 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 const VERSION = 180;
-const VERSION_STRING = "1.8.0-alpha1";
+const VERSION_STRING = "1.8.0-alpha2";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection

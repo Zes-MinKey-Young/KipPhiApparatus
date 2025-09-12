@@ -8,7 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 const VERSION = 180;
-const VERSION_STRING = "1.8.0-alpha1";
+const VERSION_STRING = "1.8.0-alpha2";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -5129,9 +5129,17 @@ class SideEditor extends Z {
 class SideEntityEditor extends SideEditor {
     get target() {
         var _a;
+        if (this._target && this._target instanceof Set) {
+            return this._target;
+        }
         return (_a = this._target) === null || _a === void 0 ? void 0 : _a.deref();
     }
     set target(val) {
+        if (val instanceof Set) {
+            this._target = val;
+            this.update();
+            return;
+        }
         this._target = new WeakRef(val);
         this.update();
     }
@@ -5563,6 +5571,12 @@ class MultiNodeEditor extends SideEntityEditor {
         });
     }
     update() {
+        const size = this.target.size;
+        const sequenceIDs = new Set;
+        for (const node of this.target) {
+            sequenceIDs.add(node.parentSeq.id);
+        }
+        this.$title.text(`Multi Nodes (${size} nodes from ${Array.from(sequenceIDs).join(", ")})`);
     }
 }
 class EventEditor extends SideEntityEditor {
@@ -6172,6 +6186,12 @@ class EventCurveEditors extends Z {
     ;
     constructor() {
         super("div");
+        this.selectOptions = {
+            none: new BoxOption("none"),
+            extend: new BoxOption("extend"),
+            replace: new BoxOption("replace"),
+            exclude: new BoxOption("exclude")
+        };
         this.$bar = $("div").addClass("event-curve-editors-bar");
         this.$typeSelect = new ZDropdownOptionBox([
             "moveX",
@@ -6187,6 +6207,7 @@ class EventCurveEditors extends Z {
         this.$editSwitch = new ZSwitch("Edit");
         this.$easingBox = new ZEasingBox(true);
         this.$rangeInput = new ZInputBox().attr("size", "6");
+        this.$selectOption = new ZDropdownOptionBox(Object.values(this.selectOptions), true);
         this.easingBeats = 0;
         this._selectedLayer = "0";
         this.addClass("event-curve-editors");
@@ -6230,7 +6251,6 @@ class EventCurveEditors extends Z {
                 this[type].newNodeState = NewNodeState["controls" + val];
             }
         });
-        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)), true);
         this.$copyButton = new ZButton("Copy");
         this.$pasteButton = new ZButton("Paste");
         this.$encapsuleBtn = new ZButton("Encapsule");
@@ -6436,6 +6456,7 @@ class EventCurveEditor {
         this.type = type;
         this.attachableValues = [];
         this.newNodeState = NewNodeState.controlsBoth;
+        this.lastSelectState = SelectState.extend;
         this.autoRangeEnabled = true;
         const config = eventTypeMap[type];
         if (type === EventType.alpha) {
@@ -6514,6 +6535,7 @@ class EventCurveEditor {
             }
             else {
                 this.state = EventCurveEditorState.selectScope;
+                this.lastSelectState = this.selectState;
             }
         });
         this.mouseIn = false;
@@ -6567,6 +6589,16 @@ class EventCurveEditor {
                 return;
             }
             e.preventDefault();
+            if (e.key === "Shift") {
+                if (this.state === EventCurveEditorState.selectScope || this.state === EventCurveEditorState.selectingScope) {
+                    return;
+                }
+                parent.$selectOption.value = parent.selectOptions[SelectState[this.lastSelectState]];
+                this.state = EventCurveEditorState.selectScope;
+                this.selectState = this.lastSelectState;
+                this.draw();
+                return;
+            }
             switch (e.key.toLowerCase()) {
                 case "v":
                     this.paste();
@@ -6574,6 +6606,16 @@ class EventCurveEditor {
                 case "c":
                     this.copy();
                     break;
+            }
+        });
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "Shift") {
+                if (this.state === EventCurveEditorState.selectScope || this.state === EventCurveEditorState.selectingScope) {
+                    this.state = EventCurveEditorState.select;
+                    this.selectState = SelectState.none;
+                    parent.$selectOption.value = parent.selectOptions.none;
+                    this.draw();
+                }
             }
         });
         // #endregion
@@ -7077,15 +7119,22 @@ class NotesEditor extends Z {
     }
     constructor(editor) {
         super("div");
+        this.lastSelectState = SelectState.extend;
         this.noteAbove = true;
         this.attachableTimes = [];
         this.timeMap = new Map();
         this.showsNNNListAttachable = true;
+        this.selectOptions = {
+            none: new BoxOption("none"),
+            extend: new BoxOption("extend"),
+            replace: new BoxOption("replace"),
+            exclude: new BoxOption("exclude")
+        };
         this.allOption = new EditableBoxOption("*", (_s, t) => { }, () => this.targetNNList = null, () => undefined, false);
         this.$listOption = new ZEditableDropdownOptionBox([this.allOption]);
         this.$typeOption = new ZDropdownOptionBox(["tap", "hold", "flick", "drag"].map((v) => new BoxOption(v)));
         this.$noteAboveSwitch = new ZSwitch("below", "above");
-        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)));
+        this.$selectOption = new ZDropdownOptionBox(Object.values(this.selectOptions));
         this.$copyButton = new ZButton("Copy");
         this.$pasteButton = new ZButton("Paste");
         this.$editButton = new ZSwitch("Edit");
@@ -7112,6 +7161,7 @@ class NotesEditor extends Z {
             }
             else {
                 this.state = NotesEditorState.selectScope;
+                this.lastSelectState = this.selectState;
             }
         });
         this.$noteAboveSwitch.whenClickChange((checked) => this.noteAbove = checked);
@@ -7204,6 +7254,16 @@ class NotesEditor extends Z {
                 return;
             }
             e.preventDefault();
+            if (e.key === "Shift") {
+                if (this.state === NotesEditorState.selectScope || this.state === NotesEditorState.selectingScope) {
+                    return;
+                }
+                this.$selectOption.value = this.selectOptions[SelectState[this.lastSelectState]];
+                this.state = NotesEditorState.selectScope;
+                this.selectState = this.lastSelectState;
+                this.draw();
+                return;
+            }
             switch (e.key.toLowerCase()) {
                 case "v":
                     this.paste();
@@ -7231,6 +7291,16 @@ class NotesEditor extends Z {
                     // this.editor.chart.getComboInfoEntity(startTime).add(note)
                     this.editor.operationList.do(new NoteAddOperation(note, this.target.getNode(note, true)));
                     break;
+            }
+        });
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "Shift") {
+                if (this.state === NotesEditorState.selectScope || this.state === NotesEditorState.selectingScope) {
+                    this.state = NotesEditorState.select;
+                    this.selectState = SelectState.none;
+                    this.$selectOption.value = this.selectOptions.none;
+                    this.draw();
+                }
             }
         });
         this.timeGridColor = [120, 255, 170];
@@ -7473,18 +7543,19 @@ class NotesEditor extends Z {
         const width = canvasWidth - padding * 2;
         const height = canvasHeight - padding * 2;
         this.drawCoordination(beats);
-        const renderLine = (line) => {
+        const renderLine = (line, showsFrom) => {
             // Hold first, so that drag/flicks can be seen
             for (const lists of [line.hnLists, line.nnLists]) {
                 for (const [_, list] of lists) {
-                    this.drawNNList(list, beats);
+                    this.drawNNList(list, beats, showsFrom);
                 }
             }
         };
         const line = this.target;
         const group = line.group;
-        if (!this.targetNNList
-            && !group.isDefault()) {
+        const rendersOtherLines = !this.targetNNList
+            && !group.isDefault();
+        if (rendersOtherLines) {
             context.save();
             context.font = "16px Phigros";
             context.globalAlpha = 0.5;
@@ -7494,7 +7565,7 @@ class NotesEditor extends Z {
                 if (judgeLine === line) {
                     continue;
                 }
-                renderLine(judgeLine);
+                renderLine(judgeLine, rendersOtherLines);
             }
             context.restore();
         }
@@ -7590,7 +7661,7 @@ class NotesEditor extends Z {
         this.drawn = false;
         this.lastBeats = beats;
     }
-    drawNNList(tree, beats) {
+    drawNNList(tree, beats, showsFrom = false) {
         const timeRange = this.timeSpan;
         let noteNode = tree.getNodeAt(beats, true);
         if (noteNode.type === 1 /* NodeType.TAIL */) {
@@ -7604,13 +7675,13 @@ class NotesEditor extends Z {
                 const note = notes[i];
                 const posX = note.positionX;
                 const count = posMap.get(note.positionX) || 0;
-                this.drawNote(beats, note, i === 0, count);
+                this.drawNote(beats, note, i === 0, count, showsFrom);
                 posMap.set(posX, count + 1);
             }
             noteNode = noteNode.next; // 这句之前忘了，卡死了，特此留念（
         }
     }
-    drawNote(beats, note, isTruck, nth) {
+    drawNote(beats, note, isTruck, nth, showsFrom) {
         const context = this.context;
         const { timeRatio, padding, matrix } = this;
         const start = TimeCalculator.toBeats(note.startTime) - beats;
@@ -7649,6 +7720,7 @@ class NotesEditor extends Z {
         else {
             const posTop = posY - NOTE_HEIGHT / 2;
             context.drawImage(getImageFromType(note.type), posLeft, posTop, NOTE_WIDTH, NOTE_HEIGHT);
+            context.fillText(note.parentNode.parentSeq.parentLine.id + "", posLeft + NOTE_WIDTH / 2, posTop + NOTE_HEIGHT + 20);
             if (this.notesSelection.has(note)) {
                 context.save();
                 context.fillStyle = "#DFD9";

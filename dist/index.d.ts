@@ -1,5 +1,5 @@
 declare const VERSION = 180;
-declare const VERSION_STRING = "1.8.0-alpha1";
+declare const VERSION_STRING = "1.8.0-alpha2";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -1752,7 +1752,7 @@ declare abstract class SideEditor extends Z<"div"> {
     abstract update(): void;
 }
 declare abstract class SideEntityEditor<T extends object> extends SideEditor {
-    _target: WeakRef<T>;
+    _target: T extends Set<any> ? T : WeakRef<T>;
     get target(): T;
     set target(val: T);
     abstract update(): void;
@@ -1941,6 +1941,12 @@ declare enum NewNodeState {
     controlsBoth = 2
 }
 declare class EventCurveEditors extends Z<"div"> {
+    selectOptions: {
+        none: BoxOption;
+        extend: BoxOption;
+        replace: BoxOption;
+        exclude: BoxOption;
+    };
     element: HTMLDivElement;
     $bar: Z<"div">;
     $typeSelect: ZDropdownOptionBox;
@@ -2041,6 +2047,7 @@ declare class EventCurveEditor {
     easing: NormalEasing;
     newNodeState: NewNodeState;
     selectState: SelectState;
+    lastSelectState: SelectState;
     mouseIn: boolean;
     startingPoint: Coordinate;
     startingCanvasPoint: Coordinate;
@@ -2119,6 +2126,7 @@ declare class NotesEditor extends Z<"div"> {
     clipboard: Set<Note>;
     selectingTail: boolean;
     state: NotesEditorState;
+    lastSelectState: SelectState;
     selectState: SelectState;
     wasEditing: boolean;
     pointedPositionX: number;
@@ -2130,6 +2138,12 @@ declare class NotesEditor extends Z<"div"> {
     showsNNNListAttachable: boolean;
     drawn: boolean;
     lastBeats: number;
+    readonly selectOptions: {
+        none: BoxOption;
+        extend: BoxOption;
+        replace: BoxOption;
+        exclude: BoxOption;
+    };
     readonly allOption: EditableBoxOption;
     readonly $listOption: ZEditableDropdownOptionBox;
     readonly $typeOption: ZDropdownOptionBox;
@@ -2167,8 +2181,8 @@ declare class NotesEditor extends Z<"div"> {
     drawCoordination(beats: number): void;
     lookList(nnnList: NNNList | NNList, startBeats: number, stopBeats: number, beats: number): void;
     draw(beats?: number): void;
-    drawNNList(tree: NNList, beats: number): void;
-    drawNote(beats: number, note: Note, isTruck: boolean, nth: number): void;
+    drawNNList(tree: NNList, beats: number, showsFrom?: boolean): void;
+    drawNote(beats: number, note: Note, isTruck: boolean, nth: number, showsFrom: boolean): void;
     paste(): void;
     copy(): void;
 }
