@@ -41,6 +41,12 @@ enum NewNodeState {
 }
 
 class EventCurveEditors extends Z<"div"> {
+    selectOptions = {
+        none: new BoxOption("none"),
+        extend: new BoxOption("extend"),
+        replace: new BoxOption("replace"),
+        exclude: new BoxOption("exclude")
+    }
     element: HTMLDivElement;
     $bar: Z<"div"> = $("div").addClass("event-curve-editors-bar");
     $typeSelect = new ZDropdownOptionBox([
@@ -60,7 +66,7 @@ class EventCurveEditors extends Z<"div"> {
     $encapsuleBtn: ZButton;
     $templateNameInput: ZInputBox;
     $rangeInput = new ZInputBox().attr("size", "6");
-    $selectOption: ZDropdownOptionBox;
+    $selectOption = new ZDropdownOptionBox(Object.values(this.selectOptions), true);
     selectState: SelectState;
     $copyButton: ZButton;
     $pasteButton: ZButton;
@@ -125,8 +131,6 @@ class EventCurveEditors extends Z<"div"> {
                 }
             });
             
-        this.$selectOption = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)), true)
-        
         this.$copyButton = new ZButton("Copy");
         this.$pasteButton = new ZButton("Paste");
         this.$encapsuleBtn = new ZButton("Encapsule");
@@ -361,6 +365,7 @@ class EventCurveEditor {
     easing: NormalEasing;
     newNodeState: NewNodeState = NewNodeState.controlsBoth;
     selectState: SelectState;
+    lastSelectState: SelectState = SelectState.extend;
     mouseIn: boolean;
     startingPoint: Coordinate;
     startingCanvasPoint: Coordinate;
@@ -486,6 +491,7 @@ class EventCurveEditor {
                 this.state = EventCurveEditorState.select;
             } else {
                 this.state = EventCurveEditorState.selectScope;
+                this.lastSelectState = this.selectState;
             }
         });
 
@@ -538,6 +544,16 @@ class EventCurveEditor {
                 return;
             }
             e.preventDefault();
+            if (e.key === "Shift") {
+                if (this.state === EventCurveEditorState.selectScope || this.state === EventCurveEditorState.selectingScope) {
+                    return;
+                }
+                parent.$selectOption.value = parent.selectOptions[SelectState[this.lastSelectState]]
+                this.state = EventCurveEditorState.selectScope;
+                this.selectState = this.lastSelectState;
+                this.draw();
+                return;
+            }
             switch (e.key.toLowerCase()) {
                 case "v":
                     this.paste();
@@ -545,6 +561,16 @@ class EventCurveEditor {
                 case "c":
                     this.copy();
                     break;
+            }
+        })
+        window.addEventListener("keyup", (e: KeyboardEvent) => {
+            if (e.key === "Shift") {
+                if (this.state === EventCurveEditorState.selectScope || this.state === EventCurveEditorState.selectingScope) {
+                    this.state = EventCurveEditorState.select;
+                    this.selectState = SelectState.none;
+                    parent.$selectOption.value = parent.selectOptions.none;
+                    this.draw();
+                }
             }
         })
         // #endregion

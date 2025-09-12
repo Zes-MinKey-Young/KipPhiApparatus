@@ -19,11 +19,19 @@ abstract class SideEditor extends Z<"div"> {
 
 abstract class SideEntityEditor<T extends object> extends SideEditor {
     
-    _target: WeakRef<T>;
+    _target: T extends Set<any> ? T : WeakRef<T>;
     get target() {
+        if (this._target && this._target instanceof Set) {
+            return this._target
+        }
         return this._target?.deref();
     }
-    set target(val) {
+    set target(val: T) {
+        if (val instanceof Set) {
+            this._target = val;
+            this.update();
+            return;
+        }
         this._target = new WeakRef(val);
         this.update();
     }
@@ -521,7 +529,12 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
         })
     }
     update(): void {
-        
+        const size = this.target.size;
+        const sequenceIDs = new Set<string>;
+        for (const node of this.target) {
+            sequenceIDs.add(node.parentSeq.id);
+        }
+        this.$title.text(`Multi Nodes (${size} nodes from ${Array.from(sequenceIDs).join(", ")})`)
     }
 } 
 

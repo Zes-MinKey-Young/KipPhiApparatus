@@ -56,6 +56,7 @@ class NotesEditor extends Z<"div"> {
     clipboard: Set<Note>;
     selectingTail: boolean;
     state: NotesEditorState;
+    lastSelectState: SelectState = SelectState.extend;
     selectState: SelectState;
     wasEditing: boolean;
     pointedPositionX: number;
@@ -72,11 +73,20 @@ class NotesEditor extends Z<"div"> {
 
     lastBeats: number;
 
+    readonly selectOptions = {
+        none: new BoxOption("none"),
+        extend: new BoxOption("extend"),
+        replace: new BoxOption("replace"),
+        exclude: new BoxOption("exclude")
+
+
+    }
+
     readonly allOption = new EditableBoxOption("*", (_s, t) => {}, () => this.targetNNList = null, () => undefined, false)
     readonly $listOption      = new ZEditableDropdownOptionBox([this.allOption]);
     readonly $typeOption      = new ZDropdownOptionBox(["tap", "hold", "flick", "drag"].map((v) => new BoxOption(v)));
     readonly $noteAboveSwitch = new ZSwitch("below", "above");
-    readonly $selectOption    = new ZDropdownOptionBox(["none", "extend", "replace", "exclude"].map(v => new BoxOption(v)))
+    readonly $selectOption    = new ZDropdownOptionBox(Object.values(this.selectOptions))
     readonly $copyButton      = new ZButton("Copy")
     readonly $pasteButton     = new ZButton("Paste")
     readonly $editButton      = new ZSwitch("Edit")
@@ -165,6 +175,7 @@ class NotesEditor extends Z<"div"> {
                 this.state = NotesEditorState.select;
             } else {
                 this.state = NotesEditorState.selectScope;
+                this.lastSelectState = this.selectState;
             }
         });
         this.$noteAboveSwitch.whenClickChange((checked) => this.noteAbove = checked);
@@ -273,6 +284,17 @@ class NotesEditor extends Z<"div"> {
                 return;
             }
             e.preventDefault();
+            
+            if (e.key === "Shift") {
+                if (this.state === NotesEditorState.selectScope || this.state === NotesEditorState.selectingScope) {
+                    return;
+                }
+                this.$selectOption.value = this.selectOptions[SelectState[this.lastSelectState]]
+                this.state = NotesEditorState.selectScope;
+                this.selectState = this.lastSelectState;
+                this.draw();
+                return;
+            }
             switch (e.key.toLowerCase()) {
                 case "v":
                     this.paste();
@@ -304,6 +326,16 @@ class NotesEditor extends Z<"div"> {
                     break;
             }
         });
+        window.addEventListener("keyup", (e: KeyboardEvent) => {
+            if (e.key === "Shift") {
+                if (this.state === NotesEditorState.selectScope || this.state === NotesEditorState.selectingScope) {
+                    this.state = NotesEditorState.select;
+                    this.selectState = SelectState.none;
+                    this.$selectOption.value = this.selectOptions.none;
+                    this.draw();
+                }
+            }
+        })
         
         this.timeGridColor = [120, 255, 170];
         this.positionGridColor = [255, 170, 120];
@@ -583,21 +615,23 @@ class NotesEditor extends Z<"div"> {
         const height = canvasHeight - padding * 2;
         this.drawCoordination(beats);
 
-        const renderLine = (line: JudgeLine) => {
+        const renderLine = (line: JudgeLine, showsFrom: boolean) => {
             // Hold first, so that drag/flicks can be seen
             for (const lists of [line.hnLists, line.nnLists]) {
                 for (const [_, list] of lists) {
-                    this.drawNNList(list, beats)
+                    this.drawNNList(list, beats, showsFrom)
                 }
             }
         }
 
         const line = this.target;
         const group = line.group;
-        if (
+
+        const rendersOtherLines = 
             !this.targetNNList
             && !group.isDefault()
-        ) {
+
+        if (rendersOtherLines) {
             context.save();
             context.font = "16px Phigros"
             context.globalAlpha = 0.5;
@@ -607,7 +641,7 @@ class NotesEditor extends Z<"div"> {
                 if (judgeLine === line) {
                     continue;
                 }
-                renderLine(judgeLine)
+                renderLine(judgeLine, rendersOtherLines)
             }
             context.restore();
         }
@@ -704,7 +738,7 @@ class NotesEditor extends Z<"div"> {
         this.drawn = false;
         this.lastBeats = beats
     }
-    drawNNList(tree: NNList, beats: number) {
+    drawNNList(tree: NNList, beats: number, showsFrom: boolean = false) {
         const timeRange = this.timeSpan
         let noteNode = tree.getNodeAt(beats, true);
         if (noteNode.type === NodeType.TAIL) {
@@ -719,13 +753,13 @@ class NotesEditor extends Z<"div"> {
                 const note = notes[i];
                 const posX = note.positionX;
                 const count = posMap.get(note.positionX) || 0;
-                this.drawNote(beats, note, i === 0, count);
+                this.drawNote(beats, note, i === 0, count, showsFrom);
                 posMap.set(posX, count + 1)
             }
             noteNode = noteNode.next // 这句之前忘了，卡死了，特此留念（
         }
     }
-    drawNote(beats: number, note: Note, isTruck: boolean, nth: number) {
+    drawNote(beats: number, note: Note, isTruck: boolean, nth: number, showsFrom: boolean) {
         const context = this.context;
         const {
             timeRatio,
@@ -768,6 +802,7 @@ class NotesEditor extends Z<"div"> {
         } else {
             const posTop = posY - NOTE_HEIGHT / 2
             context.drawImage(getImageFromType(note.type), posLeft, posTop, NOTE_WIDTH, NOTE_HEIGHT)
+            context.fillText(note.parentNode.parentSeq.parentLine.id + "", posLeft + NOTE_WIDTH / 2, posTop + NOTE_HEIGHT + 20)
             if (this.notesSelection.has(note)) {
                 context.save();
                 context.fillStyle = "#DFD9";
