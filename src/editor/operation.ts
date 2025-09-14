@@ -601,6 +601,11 @@ class EventNodePairAddOperation extends Operation {
 }
 */
 
+/**
+ * 批量添加节点对
+ * 节点对需要有序的，且不能有重叠
+
+ */
 class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperation[]> {
     updatesEditor = true
     nodes: EventStartNode[];
@@ -744,6 +749,28 @@ class EventNodeEasingChangeOperation extends Operation {
     }
 }
 
+
+class EventInterpolationOperation extends ComplexOperation<EventNodePairInsertOperation[]> {
+    updatesEditor = true;
+    constructor(public eventStartNode: EventStartNode, public step: TimeT) {
+        if (eventStartNode.next.type === NodeType.TAIL) {
+            throw new Error("Cannot interpolate on a tailing StartNode");
+        } 
+        const subOps: EventNodePairInsertOperation[] = [];
+        const endTime = eventStartNode.next.time;
+        let time = TC.validateIp(TC.add(eventStartNode.time, step));
+        let lastStart = eventStartNode;
+        for (; TC.lt(time, endTime); time = TC.validateIp(TC.add(time, step))) {
+            const value = eventStartNode.getValueAt(TC.toBeats(time));
+            const start = new EventStartNode(time, value);
+            const end = new EventEndNode(time, value);
+            EventNode.connect(end, start); // 之前搞成面对面了，写注释留念
+            subOps.push(new EventNodePairInsertOperation(start, lastStart));
+            lastStart = start;
+        }
+        super(...subOps);
+    }
+}
 
 /*
 

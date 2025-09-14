@@ -106,7 +106,7 @@ class JudgeLine {
         }
         const eventLayers = data.eventLayers;
         const length = eventLayers.length;
-        const createSequence = (type: EventType, events: EventDataRPE[], index: number) =>  {
+        const createSequence = (type: EventType, events: EventDataRPELike[], index: number) =>  {
             if (events) {
                 const sequence = EventNodeSequence.fromRPEJSON(type, events, chart);
                 sequence.id = `#${id}.${index}.${EventType[type]}`;

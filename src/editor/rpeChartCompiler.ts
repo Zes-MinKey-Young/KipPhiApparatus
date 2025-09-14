@@ -4,6 +4,7 @@
  */
 class RPEChartCompiler {
     sequenceMap: Map<EventNodeSequence, EventNodeSequence> = new Map();
+    interpolationStep: TimeT = [0, 1, 16];
     constructor(public chart: Chart) {}
 
     compileChart(): ChartDataRPE {
@@ -90,14 +91,53 @@ class RPEChartCompiler {
         };
     }
 
-    dumpEventNodeSequence(sequence: EventNodeSequence): EventDataRPE[] {
-        const nodes: EventDataRPE[] = [];
+    dumpEventNodeSequence(sequence: EventNodeSequence): EventDataRPELike[] {
+        const nodes: EventDataRPELike[] = [];
+        const interpolationStep = this.interpolationStep;
         sequence = this.substitute(sequence);
         let node = sequence.head.next;
         while (true) {
             const end = node.next;
             if (end.type === NodeType.TAIL) break;
-            nodes.push(node.dump());
+            if (node.easing instanceof ParametricEquationEasing) {
+                let cur = node.time;
+                const endTime = end.time;
+                let value = node.value;
+                for (; TC.lt(cur, endTime);) {
+                    const nextTime = TC.validateIp(TC.add(cur, interpolationStep));
+                    const nextValue = node.getValueAt(TC.toBeats(nextTime))
+                    nodes.push({
+                        bezier: 0,
+                        bezierPoints: [0, 0, 0, 0],
+                        easingLeft: 0.0,
+                        easingRight: 0.0,
+                        easingType: 1,
+                        start: value,
+                        startTime: cur,
+                        end: nextValue,
+                        endTime: nextTime,
+                        linkgroup: 0
+                    });
+                    cur = nextTime;
+                    value = nextValue;
+                }
+                // 所切割的事件长度并不必然是step的整数倍
+                nodes.push({
+                    bezier: 0,
+                    bezierPoints: [0, 0, 0, 0],
+                    easingLeft: 0.0,
+                    easingRight: 0.0,
+                    easingType: 1,
+                    start: value,
+                    startTime: cur,
+                    end: end.value,
+                    endTime: endTime,
+                    linkgroup: 0
+                })
+                
+            } else {
+                nodes.push(node.dump());
+            }
             node = end.next;
         }
         nodes.push(node.dumpAsLast());

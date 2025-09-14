@@ -292,7 +292,7 @@ class ParametricEquationEasing extends Easing {
     constructor(public equation: string) {
         super()
         // @ts-ignore
-        this._getValue = new Function("t", equation)
+        this._getValue = new Function("t", "return " + equation)
     }
     getValue(t: number): number {
         return this._getValue(t) ?? 0;

@@ -381,6 +381,7 @@ class ZFractionInput extends Z<"span"> {
         this.$int.setValue(time[0] + "");
         this.$nume.setValue(time[1] + "")
         this.$deno.setValue(time[2] + "")
+        return this;
     }
     _disabled: boolean;
     get disabled() {

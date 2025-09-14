@@ -74,7 +74,7 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param templates 
      * @returns 
      */
-    static getEasing(data: EventDataRPE, left: number, right: number, templates: TemplateEasingLib): Easing {
+    static getEasing(data: EventDataKPA, left: number, right: number, templates: TemplateEasingLib): Easing {
         if ((left && right) && (left !== 0.0 || right !== 1.0)) {
             return new SegmentedEasing(EventNode.getEasing(data, 0.0, 1.0, templates), left, right)
         }
@@ -84,6 +84,11 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
             easing.cp1 = new Coordinate(bp[0], bp[1]);
             easing.cp2 = new Coordinate(bp[2], bp[3]);
             return easing
+        } else if (data.isParametric) {
+            if (typeof data.easingType !== "string") {
+                throw new Error("Invalid easing: " + data.easingType);
+            }
+            return new ParametricEquationEasing(data.easingType);
         } else if (typeof data.easingType === "string") {
             return templates.get(data.easingType)
         } else if (typeof data.easingType === "number" && data.easingType !== 0) {
@@ -100,7 +105,7 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param templates 
      * @returns 
      */
-    static fromEvent(data: EventDataRPE, templates: TemplateEasingLib): [EventStartNode, EventEndNode] {
+    static fromEvent(data: EventDataRPELike, templates: TemplateEasingLib): [EventStartNode, EventEndNode] {
         let start = new EventStartNode(data.startTime, data.start)
         let end = new EventEndNode(data.endTime, data.end);
         start.easing = EventNode.getEasing(data, data.easingLeft, data.easingRight, templates);
@@ -275,7 +280,7 @@ class EventStartNode extends EventNode {
      * 因为是RPE和KPA共用的方法所以easingType可以为字符串
      * @returns 
      */
-    dump(): EventDataRPE {
+    dump(): EventDataKPA {
         const endNode = this.next as EventEndNode;
         const isSegmented = this.easingIsSegmented
         const easing = isSegmented ? (this.easing as SegmentedEasing).easing : this.easing;
@@ -286,9 +291,11 @@ class EventStartNode extends EventNode {
                 [0, 0, 0, 0],
             easingLeft: isSegmented ? (this.easing as SegmentedEasing).left : 0.0,
             easingRight: isSegmented ? (this.easing as SegmentedEasing).right : 1.0,
-            // @ts-expect-error
-            easingType: easing instanceof TemplateEasing ?
-                (easing.name) :
+            easingType:
+                easing instanceof ParametricEquationEasing ?
+                    easing.equation :
+                easing instanceof TemplateEasing ?
+                    easing.name :
                 easing instanceof NormalEasing ?
                     easing.rpeId ?? 1 :
                     null,
@@ -297,14 +304,16 @@ class EventStartNode extends EventNode {
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
             startTime: this.time,
+            isParametric: easing instanceof ParametricEquationEasing
         }
     }
     /**
+     * 产生一个一拍长的短钩定事件
      * 仅用于编译至RPE时解决最后一个StartNode的问题
      * 限最后一个StartNode使用
      * @returns 
      */
-    dumpAsLast(): EventDataRPE {
+    dumpAsLast(): EventDataRPELike {
         const isSegmented = this.easingIsSegmented
         const easing = isSegmented ? (this.easing as SegmentedEasing).easing : this.easing;
         return {
@@ -482,7 +491,7 @@ class EventNodeSequence {
         // this.startNodes = [];
         // this.endNodes = [];
     }
-    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPE[], chart: Chart, endValue?: number) {
+    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPELike[], chart: Chart, endValue?: number) {
         const {templateEasingLib: templates, timeCalculator} = chart
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
@@ -671,12 +680,12 @@ class EventNodeSequence {
         }
     }
     dump(): EventNodeSequenceDataKPA {
-        const nodes: EventDataRPE[] = [];
+        const nodes: EventDataRPELike[] = [];
         let currentNode: EventStartNode = this.head.next;
 
         while (currentNode && !(currentNode.next.type === NodeType.TAIL)) {
 
-            const eventData: EventDataRPE = currentNode.dump();
+            const eventData: EventDataRPELike = currentNode.dump();
 
             nodes.push(eventData);
 

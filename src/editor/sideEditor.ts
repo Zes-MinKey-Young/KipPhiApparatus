@@ -554,7 +554,13 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
     $templateLeft   = new ZInputBox().attr("placeholder", "left").setValue("0.0");
     $templateRight  = new ZInputBox().attr("placeholder", "right").setValue("1.0");
 
-    $parametric     = new ZInputBox();
+
+    $parametricOuter = $("div");
+    $parametric      = new ZInputBox();
+
+    $interpolationOuter = $("div").css("gridColumn", "1 / 3").addClass("flex-row")
+    $interpolationStep = new ZFractionInput().setValue([0, 1, 16]);
+    $interpolateBtn = new ZButton("Interpolate");
 
     $bezierEditor   = new BezierEditor(window.innerWidth * 0.2);
 
@@ -569,11 +575,19 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
             this.$normalLeft,
             this.$normalRight
         );
+        this.$parametricOuter.append(
+            this.$parametric,
+        );
+        this.$interpolationOuter.append(
+            this.$interpolateBtn,
+            $("span").text("with Step: ").css("alignSelf", "center"),
+            this.$interpolationStep
+        )
         this.$radioTabs = new ZRadioTabs("easing-type", {
             "Normal": this.$normalOuter,
             "Template": this.$templateEasing,
             "Bezier": this.$bezierEditor,
-            "Parametric": this.$parametric
+            "Parametric": this.$parametricOuter
         });
         this.$delete = new ZButton("delete").addClass("destructive")
             .onClick(() => editor.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
@@ -582,6 +596,7 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
             $("span").text("time"), this.$time,
             $("span").text("value"), this.$value,
             this.$radioTabs,
+            this.$interpolationOuter,
             $("span").text("del"), this.$delete
         )
         this.$time.onChange((t) => {
@@ -597,6 +612,12 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
         })
         this.$parametric.whenValueChange(() => {
             this.setParametricEasing(this.$parametric.getValue());
+        });
+        this.$interpolateBtn.onClick(() => {
+            if (!this.target) {
+                notify("The target has been garbage-collected.")
+            }
+            editor.operationList.do(new EventInterpolationOperation(EventNode.getStartEnd(this.target)[0], this.$interpolationStep.getValue()))
         })
         this.$radioTabs.$radioBox.onChange((id) => {
             if (id === 0) { // Normal

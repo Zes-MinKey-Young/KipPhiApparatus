@@ -557,6 +557,7 @@ class Editor extends EventTarget {
             });
             this.operationList.addEventListener("error", (e: OperationErrorEvent) => {
                 notify(e.error.message);
+                throw e.error;
             });
             // @ts-expect-error
             this.operationList.addEventListener("needsreflow", (ev: NeedsReflowEvent) => {

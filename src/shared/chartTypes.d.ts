@@ -96,7 +96,7 @@ interface NoteDataKPA extends NoteDataRPE {
 }
 
 /** 事件 */
-interface EventDataRPE<T = number> {
+interface EventDataRPELike<T = number> {
     /** 是否使用贝塞尔曲线 */
     bezier: Bool;
     /** 贝塞尔控制点 */
@@ -106,7 +106,7 @@ interface EventDataRPE<T = number> {
     /** 截取缓动右边界 */
     easingRight: number;
     /** 缓动类型 */
-    easingType: number;
+    easingType: number | string;
     /** 结束值 */
     end: T;
     /** 结束时间 */
@@ -119,6 +119,13 @@ interface EventDataRPE<T = number> {
     startTime: TimeT;
 }
 
+// 多年才想起来，根本没做参数方程缓动的相关适配
+
+interface EventDataKPA<T = number> extends EventDataRPELike<T> {
+    /** 若设为真，则easingType当做JS表达式解读 */
+    isParametric?: boolean;
+}
+
 /**
  * 五个种类的事件的start/end含义：
  * X/Y方向移动：像素
@@ -129,11 +136,11 @@ interface EventDataRPE<T = number> {
 
 /** 每条判定线的前四个事件层级。第五个是特殊事件，这里没有列入 */
 interface EventLayerDataRPE {
-    moveXEvents?: EventDataRPE[];
-    moveYEvents?: EventDataRPE[];
-    rotateEvents?: EventDataRPE[];
-    alphaEvents?: EventDataRPE[];
-    speedEvents?: EventDataRPE[];
+    moveXEvents?: EventDataRPELike[];
+    moveYEvents?: EventDataRPELike[];
+    rotateEvents?: EventDataRPELike[];
+    alphaEvents?: EventDataRPELike[];
+    speedEvents?: EventDataRPELike[];
 }
 
 
@@ -178,11 +185,11 @@ interface JudgeLineDataRPE {
     eventLayers: (EventLayerDataRPE | null)[];
     /** 扩展事件 */
     extended?: {
-        colorEvents: EventDataRPE<RGB>[];
-        inclineEvents: EventDataRPE[];
-        scaleXEvents: EventDataRPE[];
-        scaleYEvents: EventDataRPE[];
-        textEvents: EventDataRPE<string>[];
+        colorEvents: EventDataRPELike<RGB>[];
+        inclineEvents: EventDataRPELike[];
+        scaleXEvents: EventDataRPELike[];
+        scaleYEvents: EventDataRPELike[];
+        textEvents: EventDataRPELike<string>[];
     };
     /** 父线线号，没有父线则为-1 */
     father: number;
@@ -289,7 +296,7 @@ interface JudgeLineDataKPA {
 
 
 interface EventNodeSequenceDataKPA {
-    events: EventDataRPE[];
+    events: EventDataRPELike[];
     id: string;
     type: EventType;
     endValue: number;
