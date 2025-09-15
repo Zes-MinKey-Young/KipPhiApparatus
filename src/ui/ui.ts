@@ -1073,6 +1073,7 @@ class JSEditor extends Z<"div"> {
     constructor() {
         super("div");
         this.editor = new ZTextArea();
+        this.append(this.editor);
     }
     getValue() {
         return this.editor.getValue();
