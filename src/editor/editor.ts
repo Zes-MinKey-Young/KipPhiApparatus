@@ -351,23 +351,25 @@ class Editor extends EventTarget {
     eventCurveEditors: EventCurveEditors
 
     
-    readonly $topbar: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("topbar"));
-    readonly $preview: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("preview"));
-    readonly $noteInfo: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("noteInfo"));
-    readonly $eventSequence: Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("eventSequence"));
+    readonly $topbar:           Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("topbar"));
+    readonly $preview:          Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("preview"));
+    readonly $noteInfo:         Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("noteInfo"));
+    readonly $eventSequence:    Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("eventSequence"));
     readonly lineInfoEle: HTMLDivElement = <HTMLDivElement>document.getElementById("lineInfo");
     readonly playButton: HTMLButtonElement;
     readonly $timeDivisor: ZArrowInputBox;
     timeDivisor: number
-    readonly $saveButton = new ZButton("Save");
+    readonly $saveButton    = new ZButton("Save");
     readonly $compileButton = new ZButton("Compile");
-    readonly $playbackRate: ZDropdownOptionBox;
-    readonly $offsetInput = new ZInputBox().attr("size", "3");
-    readonly $switchButton = new ZButton("Switch");
+    readonly $playbackRate  = new ZDropdownOptionBox(["1.0x", "1.5x",  "2.0x",  "0.5x",  "0.25x",  "0.75x",
+                                                              "1.5x!", "2.0x!", "0.5x!", "0.25x!", "0.75x!"
+    ].map((n) => new BoxOption(n)))
+    readonly $offsetInput   = new ZInputBox().attr("size", "3");
+    readonly $switchButton  = new ZButton("Switch");
     readonly $judgeLinesEditorLayoutSelector = new ZDropdownOptionBox([
         new BoxOption("Ordered", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.ordered) }),
         new BoxOption("Grouped", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.grouped) }),
-        new BoxOption("Tree", () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.tree) })
+        new BoxOption("Tree",    () => { this.judgeLinesEditor.reflow(JudgeLinesEditorLayoutType.tree) })
     ]);
     readonly $tipsLabel: Z<"div">;
     readonly $showsLineID = new ZSwitch("ShowsLineID");
@@ -456,10 +458,15 @@ class Editor extends EventTarget {
         this.$timeDivisor.setValue(4)
         this.timeDivisor = 4
         // PlaybackRate
-        this.$playbackRate = new ZDropdownOptionBox(["1.0x", "1.5x", "2.0x", "0.5x", "0.25x", "0.75x"].map((n) => new BoxOption(n)))
-            .whenValueChange((rateStr: string) => {
-                this.player.audio.playbackRate = parseFloat(rateStr)
-            })
+        this.$playbackRate.whenValueChange((rateStr: string) => {
+            const audio = this.player.audio;
+            audio.playbackRate = parseFloat(rateStr);
+            if (rateStr.endsWith("!")) {
+                audio.preservesPitch = false;
+            } else {
+                audio.preservesPitch = true;
+            }
+        });
         // Save Button
         this.$saveButton.disabled = true;
         this.$saveButton.onClick(() => {
