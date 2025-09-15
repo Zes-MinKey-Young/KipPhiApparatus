@@ -139,6 +139,8 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
         next.previous = prev;
         endNode.previous = null;
         startNode.next = null;
+        endNode.parentSeq = null;
+        startNode.parentSeq = null; // 每亩的东西（
         return [this.previousStartOfStart(prev), this.nextStartOfEnd(next)]
     }
     static insert(node: EventStartNode, tarPrev: EventStartNode): [EventNodeLike<NodeType.HEAD> | EventStartNode, EventStartNode | EventNodeLike<NodeType.TAIL>] {

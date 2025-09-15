@@ -532,6 +532,11 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
         const size = this.target.size;
         const sequenceIDs = new Set<string>;
         for (const node of this.target) {
+            if (!node.parentSeq) {
+                // 别放孤儿进来
+                this.target.delete(node);
+                continue;
+            }
             sequenceIDs.add(node.parentSeq.id);
         }
         this.$title.text(`Multi Nodes (${size} nodes from ${Array.from(sequenceIDs).join(", ")})`)
@@ -539,6 +544,12 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
 } 
 
 class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
+    $titleContent   = $("span");
+    $goPrev         = new ZButton("prev").attr("title", "click to go to previous node,\nlong press to apply last change to previous node");
+    $goNext         = new ZButton("next").attr("title", "click to go to next node,\nlong press to apply last change to next node");
+
+    $applyLast      = new ZButton("Apply last Operation (delta) to this Node")
+                        .addClass("progressive", "side-editor-whole-line");
     
     $warning        = $("span").addClass("side-editor-warning");
     $time           = new ZFractionInput();
@@ -558,7 +569,7 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
     $parametricOuter = $("div");
     $parametric      = new ZInputBox();
 
-    $interpolationOuter = $("div").css("gridColumn", "1 / 3").addClass("flex-row")
+    $interpolationOuter = $("div").addClass("flex-row", "side-editor-whole-line")
     $interpolationStep = new ZFractionInput().setValue([0, 1, 16]);
     $interpolateBtn = new ZButton("Interpolate");
 
@@ -568,8 +579,59 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
     $radioTabs: ZRadioTabs;
     constructor() {
         super()
-        this.$title.text("EventNode (NULL)")
+        this.$titleContent.text("EventNode (NULL)");
+        this.$title.append(
+            this.$titleContent,
+            this.$goPrev,
+            this.$goNext
+        );
+        this.$title
+            .addClass("flex-row")
+            .css("width", "100%");
         this.addClass("event-editor")
+        this.$goPrev.whenShortPressed((e) => {
+            let target = this.target.previous as EventStartNode | EventEndNode;
+            if (e.altKey && target.previous.type !== NodeType.HEAD) {
+                target = target.previous as EventStartNode | EventEndNode;
+            }
+            this.target = target;
+        });
+        this.$goPrev.whenLongPressed(() => {
+            const prev = this.target.previous as EventStartNode | EventEndNode;
+            applyOpToNode(prev);
+        });
+        this.$goNext.whenShortPressed((e) => {
+            let target = this.target.next as EventStartNode | EventEndNode;
+            if (e.altKey && target.next.type !== NodeType.TAIL) {
+                target = target.next as EventStartNode | EventEndNode;
+            }
+            this.target = target;
+        });
+        this.$goNext.whenLongPressed(() => {
+            const next = this.target.next as EventStartNode | EventEndNode;
+            applyOpToNode(next);
+        });
+        const applyOpToNode = (node: EventNode) => {
+            const listOperations = editor.operationList.operations;
+            const operation = listOperations[listOperations.length - 1];
+            if (!operation) {
+                return void notify("There is no operation done in the OperatonList")
+            }
+            if (!(operation instanceof EventNodeValueChangeOperation)) {
+                notify("Last operation is not EventNodeValueChangeOperation");
+                return;
+            }
+            const delta = operation.value - operation.originalValue;
+            editor.operationList.do(new EventNodeValueChangeOperation(node, node.value + delta));
+        }
+        this.$applyLast.onClick(() => {
+            const node = this.target;
+            if (!node) {
+                return void notify("The target of this editor has been garbage-collected.")
+            }
+            applyOpToNode(node);
+        });
+
         this.$normalOuter.append(
             this.$easing,
             this.$normalLeft,
@@ -595,6 +657,7 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
             this.$warning,
             $("span").text("time"), this.$time,
             $("span").text("value"), this.$value,
+            this.$applyLast,
             this.$radioTabs,
             this.$interpolationOuter,
             $("span").text("del"), this.$delete
@@ -680,7 +743,7 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
     update(): void {
         const eventNode = this.target;
         if (!eventNode) {
-            this.$title.text("EventNode (NULL)")
+            this.$titleContent.text("EventNode (NULL)")
             return;
         }
         if (eventNode.parentSeq !== editor.eventCurveEditors.selectedEditor.target) {
@@ -690,7 +753,9 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
         }
         const isBPM = eventNode instanceof BPMStartNode || eventNode instanceof BPMEndNode
         const isStart = eventNode instanceof EventStartNode
-        this.$title.text(`${isBPM ? "BPM" : "Event"}${isStart ? "Start" : "End"}Node (from ${eventNode.parentSeq.id})`);
+        this.$titleContent.text(`${isBPM ? "BPM" : "Event"}${isStart ? "Start" : "End"}Node (from ${eventNode.parentSeq.id})`);
+        this.$goPrev.disabled = eventNode.previous.type === NodeType.HEAD;
+        this.$goNext.disabled = eventNode.next.type === NodeType.TAIL;
         this.$time.setValue(eventNode.time);
         this.$value.setValue(eventNode.value + "");
         if (eventNode.innerEasing instanceof NormalEasing) {

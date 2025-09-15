@@ -750,13 +750,15 @@ class EventNodeEasingChangeOperation extends Operation {
 }
 
 
-class EventInterpolationOperation extends ComplexOperation<EventNodePairInsertOperation[]> {
+
+// 这个地方得懒一下，不然每亩，导致撤回操作时只能撤回第一个插值节点。
+class EventInterpolationOperation extends ComplexOperation<LazyOperation<typeof EventNodePairInsertOperation>[]> {
     updatesEditor = true;
     constructor(public eventStartNode: EventStartNode, public step: TimeT) {
         if (eventStartNode.next.type === NodeType.TAIL) {
             throw new Error("Cannot interpolate on a tailing StartNode");
         } 
-        const subOps: EventNodePairInsertOperation[] = [];
+        const subOps = [];
         const endTime = eventStartNode.next.time;
         let time = TC.validateIp(TC.add(eventStartNode.time, step));
         let lastStart = eventStartNode;
@@ -765,7 +767,7 @@ class EventInterpolationOperation extends ComplexOperation<EventNodePairInsertOp
             const start = new EventStartNode(time, value);
             const end = new EventEndNode(time, value);
             EventNode.connect(end, start); // 之前搞成面对面了，写注释留念
-            subOps.push(new EventNodePairInsertOperation(start, lastStart));
+            subOps.push(EventNodePairInsertOperation.lazy(start, lastStart));
             lastStart = start;
         }
         super(...subOps);

@@ -1,5 +1,5 @@
 
-
+const LONG_PRESS_THRESHOLD_MS = 400;
 
 
 type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length"
@@ -35,12 +35,56 @@ on的绑定的是Z所含的DOM元素事件
  */
 class Z<K extends HTMLElementTagName> extends EventTarget {
     element: HTMLElementTagNameMap[K];
+    registered = false;
     get parent() {
         return Z.from(this.element.parentElement);
     }
     constructor(type: K, newElement: boolean = true) {
         super();
-        if (newElement) this.element = document.createElement(type);
+        if (newElement) {
+            this.element = document.createElement(type);
+        }
+        
+    }
+    bindHandlers() {
+        if (this.registered) {
+            return;
+        }
+        this.registered = true;
+        let lastTimeMs = 0;
+        let timeOutId: number = undefined;
+        on(["mousedown", "touchstart"], this.element, (e) => {
+            lastTimeMs = e.timeStamp;
+            timeOutId = setTimeout(() => {
+                this.dispatchEvent(new TouchOrMouseEvent("longpress", {
+                // 基础属性
+                bubbles: e.bubbles,
+                cancelable: e.cancelable,
+                composed: e.composed,
+                
+                ctrlKey: e.ctrlKey,
+                shiftKey: e.shiftKey,
+                altKey: e.altKey,
+                metaKey: e.metaKey
+            }))
+            }, LONG_PRESS_THRESHOLD_MS);
+        });
+        on(["mouseup", "touchend"], this.element, (e) => {
+            if (e.timeStamp - lastTimeMs < LONG_PRESS_THRESHOLD_MS) {
+                clearTimeout(timeOutId);
+                this.dispatchEvent(new TouchOrMouseEvent("shortpress", {
+                    // 基础属性
+                    bubbles: e.bubbles,
+                    cancelable: e.cancelable,
+                    composed: e.composed,
+                    
+                    ctrlKey: e.ctrlKey,
+                    shiftKey: e.shiftKey,
+                    altKey: e.altKey,
+                    metaKey: e.metaKey
+                }))
+            }
+        });
     }
     get clientWidth() {
         return this.element.clientWidth;
@@ -161,10 +205,58 @@ class Z<K extends HTMLElementTagName> extends EventTarget {
     isFocused() {
         return this.element === document.activeElement;
     }
+    whenShortPressed(callback: (e: TouchOrMouseEvent) => any) {
+        if (!this.registered) {
+            this.bindHandlers();
+        }
+        // @ts-ignore
+        this.addEventListener("shortpress", callback)
+        return this;
+    }
+    whenLongPressed(callback: (e: TouchOrMouseEvent) => any) {
+        if (!this.registered) {
+            this.bindHandlers();
+        }
+        // @ts-ignore
+        this.addEventListener("longpress", callback)
+        return this;
+    }
 }
 
 const $: <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => Z<K>
  = <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => typeof strOrEle === "string" ? new Z(strOrEle) : Z.from<K>(strOrEle);
+
+type CommonPart<T, U> = {
+  [K in keyof T & keyof U]: T[K] extends U[K] ? T[K] : never;
+};
+
+type ITouchOrMouseEvent = CommonPart<MouseEvent, TouchEvent>;
+
+class TouchOrMouseEvent extends Event implements ITouchOrMouseEvent {
+    ctrlKey: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    metaKey: boolean;
+    detail: any;
+    which: any;
+    initUIEvent() {}
+    view: any;
+    constructor(type: string, eventInitDict?: Partial<CommonPart<MouseEventInit, TouchEventInit>>) {
+        super(type, eventInitDict);
+        this.ctrlKey = eventInitDict.ctrlKey;
+        this.shiftKey = eventInitDict.shiftKey;
+        this.altKey = eventInitDict.altKey;
+        this.metaKey = eventInitDict.metaKey;
+        this.detail = eventInitDict.detail;
+        this.which = eventInitDict.which;
+    }
+}
+
+
+interface ZButtonEventMap /* extends ZEventMap*/ {
+    "longpress": TouchOrMouseEvent;
+    "shortpress": TouchOrMouseEvent;
+}
 
 /*
  * The classes below encapsulate some common UI Gadgets in KPA.
@@ -195,6 +287,24 @@ class ZButton extends Z<"div"> {
             }
 
             callback(e)
+        })
+        return this;
+    }
+    whenShortPressed(callback: (e: TouchOrMouseEvent) => any) {
+        super.whenShortPressed((e) => {
+            if (this.disabled) {
+                return;
+            }
+            callback(e);
+        })
+        return this;
+    }
+    whenLongPressed(callback: (e: TouchOrMouseEvent) => any) {
+        super.whenLongPressed((e) => {
+            if (this.disabled) {
+                return;
+            }
+            callback(e);
         })
         return this;
     }
@@ -617,7 +727,6 @@ class ZEditableDropdownOptionBox extends Z<"div"> {
     }
 }
 
-const THRESHOLD = 100
 
 class ZSearchBox extends Z<"div"> {
     count = 5
