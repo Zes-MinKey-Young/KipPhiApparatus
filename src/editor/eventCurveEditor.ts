@@ -68,8 +68,6 @@ class EventCurveEditors extends Z<"div"> {
     $rangeInput = new ZInputBox().attr("size", "6");
     $selectOption = new ZDropdownOptionBox(Object.values(this.selectOptions), true);
     selectState: SelectState;
-    $copyButton: ZButton;
-    $pasteButton: ZButton;
 
 
     moveX: EventCurveEditor;
@@ -131,8 +129,6 @@ class EventCurveEditors extends Z<"div"> {
                 }
             });
             
-        this.$copyButton = new ZButton("Copy");
-        this.$pasteButton = new ZButton("Paste");
         this.$encapsuleBtn = new ZButton("Encapsule");
         this.$templateNameInput = new ZInputBox().attr("size", "4");
         this.$templateNameInput.whenValueChange((name) => {
@@ -168,8 +164,6 @@ class EventCurveEditors extends Z<"div"> {
             this.$rangeInput,
             this.$selectOption,
             this.$editSwitch,
-            this.$copyButton,
-            this.$pasteButton,
             this.$easingBox,
             this.$newNodeStateSelect,
             this.$templateNameInput,
@@ -501,12 +495,6 @@ class EventCurveEditor {
         });
         this.canvas.addEventListener("mouseleave", () => {
             this.mouseIn = false;
-        });
-        parent.$copyButton.onClick(() => {
-            this.copy();
-        });
-        parent.$pasteButton.onClick(() => {
-            this.paste();
         });
         parent.$encapsuleBtn.onClick(() => {
             if (!this.active) {

@@ -87,8 +87,6 @@ class NotesEditor extends Z<"div"> {
     readonly $typeOption      = new ZDropdownOptionBox(["tap", "hold", "flick", "drag"].map((v) => new BoxOption(v)));
     readonly $noteAboveSwitch = new ZSwitch("below", "above");
     readonly $selectOption    = new ZDropdownOptionBox(Object.values(this.selectOptions))
-    readonly $copyButton      = new ZButton("Copy")
-    readonly $pasteButton     = new ZButton("Paste")
     readonly $editButton      = new ZSwitch("Edit")
     readonly $timeSpanInput   = new ZInputBox("2").attr("placeholder", "TimeSpan").attr("size", "3");
     readonly $xLineCountInput = new ZArrowInputBox(10).attr("placeholder", "TimeLineCount").attr("size", "3");
@@ -181,12 +179,6 @@ class NotesEditor extends Z<"div"> {
         this.$noteAboveSwitch.whenClickChange((checked) => this.noteAbove = checked);
         this.$noteAboveSwitch.checked = true;
         this.notesSelection = new Set();
-        this.$copyButton.onClick(() => {
-            this.copy()
-        });
-        this.$pasteButton.onClick(() => {
-            this.paste()
-        });
         this.$editButton.whenClickChange((checked) => {
             this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
         });
@@ -207,8 +199,6 @@ class NotesEditor extends Z<"div"> {
             this.$typeOption,
             this.$noteAboveSwitch,
             this.$editButton,
-            this.$copyButton,
-            this.$pasteButton,
             this.$selectOption,
             this.$showsNNNListAttachable
             )
@@ -653,7 +643,7 @@ class NotesEditor extends Z<"div"> {
             this.drawNNList(this.targetNNList, beats)
         } else {
             this.selectionManager.setBasePriority(1);
-            renderLine(this.target);
+            renderLine(this.target, false);
             this.selectionManager.setBasePriority(0);
         }
         // 绘制侧边音符节点标识
