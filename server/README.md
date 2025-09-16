@@ -1,18 +1,5 @@
 # server
 
-To install dependencies:
+本文件夹存放服务器源代码。
 
-```bash
-bun install
-```
-
-To run:
-
-```bash
-bun run index.ts
-```
-
-This project was created using `bun init` in bun v1.2.14. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
-
-
-本项目依赖于```music-metadata```
+服务器使用Bun运行，请确保已安装Bun用于编译为二进制文件。

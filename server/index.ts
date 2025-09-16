@@ -11,7 +11,6 @@ import { parse as parseRPEMetadata } from "./RPEInfoParser.ts";
 import StreamZip from 'node-stream-zip';
 import { EventType, NoteType} from '../dist/chartTypes.d.ts'
 import { networkInterfaces } from 'os';
-import { MIMEType } from 'util';
 
 const MODS_PATH = "../mods/"
 
@@ -199,7 +198,18 @@ async function createChart(music: File, title: string, baseBPM: number): Promise
     }
 }
 
-const config = Bun.file("config.jsonc")
+let config = Bun.file("config.jsonc")
+
+if  (!await config.exists()) {
+    config = Bun.file("default.jsonc");
+    Bun.write("config.jsonc", await config.text());
+    console.log("No config.jsonc found, created one with default.jsonc");
+    console.log("If you have Git or any other Version Control System installed, you can configure it in config.jsonc.");
+} else {
+    console.log("Found config.jsonc.");
+    console.log("Configuaration structure may change as KPA updates, please refer to default.jsonc and the wiki for the latest structure.");
+}
+console.log("Visit https://pgrfm.miraheze.org/ for documentation of KPA.")
 
 interface Config {
     pathquery: string[];
@@ -592,7 +602,6 @@ Bun.serve({
             PUT: async (req: BunRequest) => {
                 const url = new URL(req.url);
                 const filename = decodeURIComponent(url.pathname.slice(1));
-                MIMEType
                 if (filename.endsWith(".js") || filename.endsWith(".mjs")) {
 
                 }

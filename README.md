@@ -35,6 +35,8 @@ KPA expects editing events like editing videos. In KPA, Events are presented and
 
 本软件没有发布NPM包，若需要谱面解析可直接复制谱面部分的文件，这些文件所在的路径需要附上原许可。
 
+若遇到BUG或有一些好的建议，请在本仓库创建一个Issue。亦可加入奇谱发生器QQ群：478824121。
+
 # Usage
 Visit https://zes-minkey-young.github.io/kpa/html
 
@@ -42,13 +44,14 @@ Or download the releases (with server)
 
 No npm package is released for this software. If you want to parse charts you can copy the files of the chart and attach licenses to their directory.
 
+If you encounter a bug or have some good suggestions, please create an issue in this repository. You can also join the KPA QQ group: 478824121.
+
 # 开发
 本仓库使用TypeScript编写，使用VSCode开发。由于文件之间的类、接口等引用交错复杂，故采用直接编译到一个文件的方式，而不是使用ESModule的方式。欢迎为本项目做出贡献。
 
 src文件夹内有三个tsconfig，一个为总config，另外两个分别为diff和index的config。
 
 开发此项目时，由于这两个项目之间有交叉，不使用扩展来执行自动编译。scripts文件夹下有监听脚本compilerOnSave.ts（用Bun运行即可），可用于自动编译。由于本仓库上传了`.vscode`文件夹，通常您不需要额外配置。
-
 
 
 # Development
@@ -64,16 +67,30 @@ Under the scripts folder, there is a watch script compilerOnSave.ts (executable 
 
 Since this repository includes the .vscode folder, no additional configuration is typically required.
 
-# 配置
-奇谱发生器本地服务端使用Bun编译，至少Windows 10系统方可使用。若遇到BUG或有一些好的建议，请在本仓库创建一个Issue。亦可加入奇谱发生器QQ群：478824121。
+# 依赖
+奇谱发生器本地服务端使用Bun编译，至少Windows 10系统方可使用。
+
+请使用`bun install`安装依赖。
 
 后续可能会推出不使用Bun的版本。
 
-# Configuration
+以下是服务器直接依赖的NPM包（不含Bun的）：
+- `music-metadata` (MIT许可证, https://npmjs.com/package/music-metadata)
+- `node-stream-zip` (MIT许可证, https://npmjs.com/package/node-stream-zip)
+- `jsonc-parser` (MIT许可证, https://npmjs.com/package/jsonc-parser)
 
-KPA uses Bun to compile local server, at least Windows 10 is required. If you encounter a bug or have some good suggestions, please create an issue in this repository. You can also join the KPA QQ group: 478824121.
+# Dependencies
+
+KPA uses Bun to compile local server, at least Windows 10 is required.
+
+Please use `bun install` to install dependencies.
 
 Versions without Bun may be released in the future.
+
+Here are the NPM packages that KPA uses directly (excluding Bun):
+- `music-metadata` (MIT License, https://npmjs.com/package/music-metadata)
+- `node-stream-zip` (MIT License, https://npmjs.com/package/node-stream-zip)
+- `jsonc-parser` (MIT License, https://npmjs.com/package/jsonc-parser)
 
 # 致谢/Acknowledgements
 - Phigros官方

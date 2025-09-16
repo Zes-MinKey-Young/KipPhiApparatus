@@ -36,7 +36,7 @@ Name: "runapp"; Description: "{cm:RunApp}"; Flags: unchecked
 Filename: "{app}\start.bat"; Description: "启动 KPA"; Tasks: runapp
 
 [Languages]
-Name: "zh"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"; LicenseFile: "license_with_zh.txt"
+Name: "zh"; MessagesFile: "./ChineseSimplified.isl"; LicenseFile: "license_with_zh.txt"
 Name: "en"; MessagesFile: "compiler:Default.isl"; LicenseFile: "LICENSE"
 
 [Messages]
