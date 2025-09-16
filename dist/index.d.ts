@@ -707,14 +707,14 @@ declare abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param templates
      * @returns
      */
-    static getEasing(data: EventDataRPE, left: number, right: number, templates: TemplateEasingLib): Easing;
+    static getEasing(data: EventDataKPA, left: number, right: number, templates: TemplateEasingLib): Easing;
     /**
      * constructs EventStartNode and EventEndNode from EventDataRPE
      * @param data
      * @param templates
      * @returns
      */
-    static fromEvent(data: EventDataRPE, templates: TemplateEasingLib): [EventStartNode, EventEndNode];
+    static fromEvent(data: EventDataRPELike, templates: TemplateEasingLib): [EventStartNode, EventEndNode];
     static connect(node1: EventStartNode, node2: EventEndNode | EventNodeLike<NodeType.TAIL>): void;
     static connect(node1: EventEndNode | EventNodeLike<NodeType.HEAD>, node2: EventStartNode): void;
     static removeNodePair(endNode: EventEndNode, startNode: EventStartNode): [EventStartNode | EventNodeLike<NodeType.HEAD>, EventStartNode | EventNodeLike<NodeType.TAIL>];
@@ -776,13 +776,14 @@ declare class EventStartNode extends EventNode {
      * 因为是RPE和KPA共用的方法所以easingType可以为字符串
      * @returns
      */
-    dump(): EventDataRPE;
+    dump(): EventDataKPA;
     /**
+     * 产生一个一拍长的短钩定事件
      * 仅用于编译至RPE时解决最后一个StartNode的问题
      * 限最后一个StartNode使用
      * @returns
      */
-    dumpAsLast(): EventDataRPE;
+    dumpAsLast(): EventDataRPELike;
     getValueAt(beats: number): number;
     getSpeedValueAt(beats: number): number;
     /**
@@ -839,7 +840,7 @@ declare class EventNodeSequence {
     /** 一定是二的幂，避免浮点误差 */
     jumpAverageBeats: number;
     constructor(type: EventType, effectiveBeats: number);
-    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPE[], chart: Chart, endValue?: number): EventNodeSequence;
+    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPELike[], chart: Chart, endValue?: number): EventNodeSequence;
     /**
      * 生成一个新的事件节点序列，仅拥有一个节点。
      * 需要分配ID！！！！！！
@@ -959,6 +960,7 @@ declare class TimeCalculator {
     dump(): BPMSegmentData[];
 }
 declare const TC: typeof TimeCalculator;
+declare const LONG_PRESS_THRESHOLD_MS = 400;
 type CSSStyleName = Exclude<keyof CSSStyleDeclaration, "length" | "parentRule" | "item" | "getPropertyValue" | "getPropertyPriority" | "setProperty" | "removeProperty">;
 type HTMLElementTagName = keyof HTMLElementTagNameMap;
 /**
@@ -975,8 +977,10 @@ type HTMLElementTagName = keyof HTMLElementTagNameMap;
  */
 declare class Z<K extends HTMLElementTagName> extends EventTarget {
     element: HTMLElementTagNameMap[K];
+    registered: boolean;
     get parent(): Z<keyof HTMLElementTagNameMap>;
     constructor(type: K, newElement?: boolean);
+    bindHandlers(): void;
     get clientWidth(): number;
     get clientHeight(): number;
     html(str: string): this;
@@ -1009,14 +1013,37 @@ declare class Z<K extends HTMLElementTagName> extends EventTarget {
     static from<K extends keyof HTMLElementTagNameMap>(element: HTMLElementTagNameMap[K]): Z<K>;
     appendMass(callback: () => void): this;
     isFocused(): boolean;
+    whenShortPressed(callback: (e: TouchOrMouseEvent) => any): this;
+    whenLongPressed(callback: (e: TouchOrMouseEvent) => any): this;
 }
 declare const $: <K extends keyof HTMLElementTagNameMap>(strOrEle: K | HTMLElementTagNameMap[K]) => Z<K>;
+type CommonPart<T, U> = {
+    [K in keyof T & keyof U]: T[K] extends U[K] ? T[K] : never;
+};
+type ITouchOrMouseEvent = CommonPart<MouseEvent, TouchEvent>;
+declare class TouchOrMouseEvent extends Event implements ITouchOrMouseEvent {
+    ctrlKey: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    metaKey: boolean;
+    detail: any;
+    which: any;
+    initUIEvent(): void;
+    view: any;
+    constructor(type: string, eventInitDict?: Partial<CommonPart<MouseEventInit, TouchEventInit>>);
+}
+interface ZButtonEventMap {
+    "longpress": TouchOrMouseEvent;
+    "shortpress": TouchOrMouseEvent;
+}
 declare class ZButton extends Z<"div"> {
     _disabled: boolean;
     get disabled(): boolean;
     set disabled(val: boolean);
     constructor(text: string);
     onClick(callback: (e: Event) => any): this;
+    whenShortPressed(callback: (e: TouchOrMouseEvent) => any): this;
+    whenLongPressed(callback: (e: TouchOrMouseEvent) => any): this;
 }
 declare class ZSwitch extends ZButton {
     innerText: string;
@@ -1066,7 +1093,7 @@ declare class ZFractionInput extends Z<"span"> {
     $deno: ZInputBox;
     constructor();
     getValue(): TimeT;
-    setValue(time: TimeT): void;
+    setValue(time: TimeT): this;
     _disabled: boolean;
     get disabled(): boolean;
     set disabled(val: boolean);
@@ -1121,7 +1148,6 @@ declare class ZEditableDropdownOptionBox extends Z<"div"> {
     appendOption(option: EditableBoxOption): this;
     replaceWithOptions(options: EditableBoxOption[]): this;
 }
-declare const THRESHOLD = 100;
 declare class ZSearchBox extends Z<"div"> {
     count: number;
     readonly $value: ZInputBox;
@@ -1532,6 +1558,11 @@ class EventNodePairAddOperation extends Operation {
     }
 }
 */
+/**
+ * 批量添加节点对
+ * 节点对需要有序的，且不能有重叠
+
+ */
 declare class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperation[]> {
     updatesEditor: boolean;
     nodes: EventStartNode[];
@@ -1585,6 +1616,12 @@ declare class EventNodeEasingChangeOperation extends Operation {
     constructor(node: EventStartNode | EventEndNode, val: Easing);
     do(): void;
     undo(): void;
+}
+declare class EventInterpolationOperation extends ComplexOperation<LazyOperation<typeof EventNodePairInsertOperation>[]> {
+    eventStartNode: EventStartNode;
+    step: TimeT;
+    updatesEditor: boolean;
+    constructor(eventStartNode: EventStartNode, step: TimeT);
 }
 declare class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation, EventNodeValueChangeOperation]> {
     updatesEditor: boolean;
@@ -1822,6 +1859,10 @@ declare class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
     update(): void;
 }
 declare class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
+    $titleContent: Z<"span">;
+    $goPrev: ZButton;
+    $goNext: ZButton;
+    $applyLast: ZButton;
     $warning: Z<"span">;
     $time: ZFractionInput;
     $value: ZInputBox;
@@ -1833,7 +1874,11 @@ declare class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode
     $templateEasing: ZInputBox;
     $templateLeft: ZInputBox;
     $templateRight: ZInputBox;
+    $parametricOuter: Z<"div">;
     $parametric: ZInputBox;
+    $interpolationOuter: Z<"div">;
+    $interpolationStep: ZFractionInput;
+    $interpolateBtn: ZButton;
     $bezierEditor: BezierEditor;
     $delete: ZButton;
     $radioTabs: ZRadioTabs;
@@ -1960,8 +2005,6 @@ declare class EventCurveEditors extends Z<"div"> {
     $rangeInput: ZInputBox;
     $selectOption: ZDropdownOptionBox;
     selectState: SelectState;
-    $copyButton: ZButton;
-    $pasteButton: ZButton;
     moveX: EventCurveEditor;
     moveY: EventCurveEditor;
     alpha: EventCurveEditor;
@@ -2149,8 +2192,6 @@ declare class NotesEditor extends Z<"div"> {
     readonly $typeOption: ZDropdownOptionBox;
     readonly $noteAboveSwitch: ZSwitch;
     readonly $selectOption: ZDropdownOptionBox;
-    readonly $copyButton: ZButton;
-    readonly $pasteButton: ZButton;
     readonly $editButton: ZSwitch;
     readonly $timeSpanInput: ZInputBox;
     readonly $xLineCountInput: ZArrowInputBox;
@@ -2308,10 +2349,11 @@ declare class Editor extends EventTarget {
 declare class RPEChartCompiler {
     chart: Chart;
     sequenceMap: Map<EventNodeSequence, EventNodeSequence>;
+    interpolationStep: TimeT;
     constructor(chart: Chart);
     compileChart(): ChartDataRPE;
     compileJudgeLine(judgeLine: JudgeLine): JudgeLineDataRPE;
-    dumpEventNodeSequence(sequence: EventNodeSequence): EventDataRPE[];
+    dumpEventNodeSequence(sequence: EventNodeSequence): EventDataRPELike[];
     compileNNLists(nnLists: NNList[], hnLists: HNList[]): NoteDataRPE[];
     /**
      * 倒序转换为数组

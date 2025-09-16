@@ -431,7 +431,7 @@ class ParametricEquationEasing extends Easing {
         super();
         this.equation = equation;
         // @ts-ignore
-        this._getValue = new Function("t", equation);
+        this._getValue = new Function("t", "return " + equation);
     }
     getValue(t) {
         var _a;
@@ -2255,6 +2255,12 @@ class EventNode extends EventNodeLike {
             easing.cp2 = new Coordinate(bp[2], bp[3]);
             return easing;
         }
+        else if (data.isParametric) {
+            if (typeof data.easingType !== "string") {
+                throw new Error("Invalid easing: " + data.easingType);
+            }
+            return new ParametricEquationEasing(data.easingType);
+        }
         else if (typeof data.easingType === "string") {
             return templates.get(data.easingType);
         }
@@ -2306,6 +2312,8 @@ class EventNode extends EventNodeLike {
         next.previous = prev;
         endNode.previous = null;
         startNode.next = null;
+        endNode.parentSeq = null;
+        startNode.parentSeq = null; // 每亩的东西（
         return [this.previousStartOfStart(prev), this.nextStartOfEnd(next)];
     }
     static insert(node, tarPrev) {
@@ -2453,20 +2461,23 @@ class EventStartNode extends EventNode {
                 [0, 0, 0, 0],
             easingLeft: isSegmented ? this.easing.left : 0.0,
             easingRight: isSegmented ? this.easing.right : 1.0,
-            // @ts-expect-error
-            easingType: easing instanceof TemplateEasing ?
-                (easing.name) :
-                easing instanceof NormalEasing ?
-                    (_a = easing.rpeId) !== null && _a !== void 0 ? _a : 1 :
-                    null,
+            easingType: easing instanceof ParametricEquationEasing ?
+                easing.equation :
+                easing instanceof TemplateEasing ?
+                    easing.name :
+                    easing instanceof NormalEasing ?
+                        (_a = easing.rpeId) !== null && _a !== void 0 ? _a : 1 :
+                        null,
             end: easing === fixedEasing ? this.value : endNode.value,
             endTime: endNode.time,
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
             startTime: this.time,
+            isParametric: easing instanceof ParametricEquationEasing
         };
     }
     /**
+     * 产生一个一拍长的短钩定事件
      * 仅用于编译至RPE时解决最后一个StartNode的问题
      * 限最后一个StartNode使用
      * @returns
@@ -3085,6 +3096,7 @@ class TimeCalculator {
     }
 }
 const TC = TimeCalculator;
+const LONG_PRESS_THRESHOLD_MS = 400;
 /*
 when和on开头的方法都可以绑定监听器
 
@@ -3111,8 +3123,48 @@ class Z extends EventTarget {
     }
     constructor(type, newElement = true) {
         super();
-        if (newElement)
+        this.registered = false;
+        if (newElement) {
             this.element = document.createElement(type);
+        }
+    }
+    bindHandlers() {
+        if (this.registered) {
+            return;
+        }
+        this.registered = true;
+        let lastTimeMs = 0;
+        let timeOutId = undefined;
+        on(["mousedown", "touchstart"], this.element, (e) => {
+            lastTimeMs = e.timeStamp;
+            timeOutId = setTimeout(() => {
+                this.dispatchEvent(new TouchOrMouseEvent("longpress", {
+                    // 基础属性
+                    bubbles: e.bubbles,
+                    cancelable: e.cancelable,
+                    composed: e.composed,
+                    ctrlKey: e.ctrlKey,
+                    shiftKey: e.shiftKey,
+                    altKey: e.altKey,
+                    metaKey: e.metaKey
+                }));
+            }, LONG_PRESS_THRESHOLD_MS);
+        });
+        on(["mouseup", "touchend"], this.element, (e) => {
+            if (e.timeStamp - lastTimeMs < LONG_PRESS_THRESHOLD_MS) {
+                clearTimeout(timeOutId);
+                this.dispatchEvent(new TouchOrMouseEvent("shortpress", {
+                    // 基础属性
+                    bubbles: e.bubbles,
+                    cancelable: e.cancelable,
+                    composed: e.composed,
+                    ctrlKey: e.ctrlKey,
+                    shiftKey: e.shiftKey,
+                    altKey: e.altKey,
+                    metaKey: e.metaKey
+                }));
+            }
+        });
     }
     get clientWidth() {
         return this.element.clientWidth;
@@ -3224,8 +3276,36 @@ class Z extends EventTarget {
     isFocused() {
         return this.element === document.activeElement;
     }
+    whenShortPressed(callback) {
+        if (!this.registered) {
+            this.bindHandlers();
+        }
+        // @ts-ignore
+        this.addEventListener("shortpress", callback);
+        return this;
+    }
+    whenLongPressed(callback) {
+        if (!this.registered) {
+            this.bindHandlers();
+        }
+        // @ts-ignore
+        this.addEventListener("longpress", callback);
+        return this;
+    }
 }
 const $ = (strOrEle) => typeof strOrEle === "string" ? new Z(strOrEle) : Z.from(strOrEle);
+class TouchOrMouseEvent extends Event {
+    initUIEvent() { }
+    constructor(type, eventInitDict) {
+        super(type, eventInitDict);
+        this.ctrlKey = eventInitDict.ctrlKey;
+        this.shiftKey = eventInitDict.shiftKey;
+        this.altKey = eventInitDict.altKey;
+        this.metaKey = eventInitDict.metaKey;
+        this.detail = eventInitDict.detail;
+        this.which = eventInitDict.which;
+    }
+}
 /*
  * The classes below encapsulate some common UI Gadgets in KPA.
  */
@@ -3249,6 +3329,24 @@ class ZButton extends Z {
     }
     onClick(callback) {
         this.element.addEventListener("click", (e) => {
+            if (this.disabled) {
+                return;
+            }
+            callback(e);
+        });
+        return this;
+    }
+    whenShortPressed(callback) {
+        super.whenShortPressed((e) => {
+            if (this.disabled) {
+                return;
+            }
+            callback(e);
+        });
+        return this;
+    }
+    whenLongPressed(callback) {
+        super.whenLongPressed((e) => {
             if (this.disabled) {
                 return;
             }
@@ -3417,6 +3515,7 @@ class ZFractionInput extends Z {
         this.$int.setValue(time[0] + "");
         this.$nume.setValue(time[1] + "");
         this.$deno.setValue(time[2] + "");
+        return this;
     }
     get disabled() {
         return this._disabled;
@@ -3634,7 +3733,6 @@ class ZEditableDropdownOptionBox extends Z {
         return this;
     }
 }
-const THRESHOLD = 100;
 class ZSearchBox extends Z {
     constructor(searchable, up = false) {
         super("div");
@@ -3949,6 +4047,7 @@ class JSEditor extends Z {
     constructor() {
         super("div");
         this.editor = new ZTextArea();
+        this.append(this.editor);
     }
     getValue() {
         return this.editor.getValue();

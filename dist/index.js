@@ -255,7 +255,7 @@ class ParametricEquationEasing extends Easing {
         super();
         this.equation = equation;
         // @ts-ignore
-        this._getValue = new Function("t", equation);
+        this._getValue = new Function("t", "return " + equation);
     }
     getValue(t) {
         var _a;
@@ -2079,6 +2079,12 @@ class EventNode extends EventNodeLike {
             easing.cp2 = new Coordinate(bp[2], bp[3]);
             return easing;
         }
+        else if (data.isParametric) {
+            if (typeof data.easingType !== "string") {
+                throw new Error("Invalid easing: " + data.easingType);
+            }
+            return new ParametricEquationEasing(data.easingType);
+        }
         else if (typeof data.easingType === "string") {
             return templates.get(data.easingType);
         }
@@ -2130,6 +2136,8 @@ class EventNode extends EventNodeLike {
         next.previous = prev;
         endNode.previous = null;
         startNode.next = null;
+        endNode.parentSeq = null;
+        startNode.parentSeq = null; // 每亩的东西（
         return [this.previousStartOfStart(prev), this.nextStartOfEnd(next)];
     }
     static insert(node, tarPrev) {
@@ -2277,20 +2285,23 @@ class EventStartNode extends EventNode {
                 [0, 0, 0, 0],
             easingLeft: isSegmented ? this.easing.left : 0.0,
             easingRight: isSegmented ? this.easing.right : 1.0,
-            // @ts-expect-error
-            easingType: easing instanceof TemplateEasing ?
-                (easing.name) :
-                easing instanceof NormalEasing ?
-                    (_a = easing.rpeId) !== null && _a !== void 0 ? _a : 1 :
-                    null,
+            easingType: easing instanceof ParametricEquationEasing ?
+                easing.equation :
+                easing instanceof TemplateEasing ?
+                    easing.name :
+                    easing instanceof NormalEasing ?
+                        (_a = easing.rpeId) !== null && _a !== void 0 ? _a : 1 :
+                        null,
             end: easing === fixedEasing ? this.value : endNode.value,
             endTime: endNode.time,
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
             startTime: this.time,
+            isParametric: easing instanceof ParametricEquationEasing
         };
     }
     /**
+     * 产生一个一拍长的短钩定事件
      * 仅用于编译至RPE时解决最后一个StartNode的问题
      * 限最后一个StartNode使用
      * @returns
@@ -2909,6 +2920,7 @@ class TimeCalculator {
     }
 }
 const TC = TimeCalculator;
+const LONG_PRESS_THRESHOLD_MS = 400;
 /*
 when和on开头的方法都可以绑定监听器
 
@@ -2935,8 +2947,48 @@ class Z extends EventTarget {
     }
     constructor(type, newElement = true) {
         super();
-        if (newElement)
+        this.registered = false;
+        if (newElement) {
             this.element = document.createElement(type);
+        }
+    }
+    bindHandlers() {
+        if (this.registered) {
+            return;
+        }
+        this.registered = true;
+        let lastTimeMs = 0;
+        let timeOutId = undefined;
+        on(["mousedown", "touchstart"], this.element, (e) => {
+            lastTimeMs = e.timeStamp;
+            timeOutId = setTimeout(() => {
+                this.dispatchEvent(new TouchOrMouseEvent("longpress", {
+                    // 基础属性
+                    bubbles: e.bubbles,
+                    cancelable: e.cancelable,
+                    composed: e.composed,
+                    ctrlKey: e.ctrlKey,
+                    shiftKey: e.shiftKey,
+                    altKey: e.altKey,
+                    metaKey: e.metaKey
+                }));
+            }, LONG_PRESS_THRESHOLD_MS);
+        });
+        on(["mouseup", "touchend"], this.element, (e) => {
+            if (e.timeStamp - lastTimeMs < LONG_PRESS_THRESHOLD_MS) {
+                clearTimeout(timeOutId);
+                this.dispatchEvent(new TouchOrMouseEvent("shortpress", {
+                    // 基础属性
+                    bubbles: e.bubbles,
+                    cancelable: e.cancelable,
+                    composed: e.composed,
+                    ctrlKey: e.ctrlKey,
+                    shiftKey: e.shiftKey,
+                    altKey: e.altKey,
+                    metaKey: e.metaKey
+                }));
+            }
+        });
     }
     get clientWidth() {
         return this.element.clientWidth;
@@ -3048,8 +3100,36 @@ class Z extends EventTarget {
     isFocused() {
         return this.element === document.activeElement;
     }
+    whenShortPressed(callback) {
+        if (!this.registered) {
+            this.bindHandlers();
+        }
+        // @ts-ignore
+        this.addEventListener("shortpress", callback);
+        return this;
+    }
+    whenLongPressed(callback) {
+        if (!this.registered) {
+            this.bindHandlers();
+        }
+        // @ts-ignore
+        this.addEventListener("longpress", callback);
+        return this;
+    }
 }
 const $ = (strOrEle) => typeof strOrEle === "string" ? new Z(strOrEle) : Z.from(strOrEle);
+class TouchOrMouseEvent extends Event {
+    initUIEvent() { }
+    constructor(type, eventInitDict) {
+        super(type, eventInitDict);
+        this.ctrlKey = eventInitDict.ctrlKey;
+        this.shiftKey = eventInitDict.shiftKey;
+        this.altKey = eventInitDict.altKey;
+        this.metaKey = eventInitDict.metaKey;
+        this.detail = eventInitDict.detail;
+        this.which = eventInitDict.which;
+    }
+}
 /*
  * The classes below encapsulate some common UI Gadgets in KPA.
  */
@@ -3073,6 +3153,24 @@ class ZButton extends Z {
     }
     onClick(callback) {
         this.element.addEventListener("click", (e) => {
+            if (this.disabled) {
+                return;
+            }
+            callback(e);
+        });
+        return this;
+    }
+    whenShortPressed(callback) {
+        super.whenShortPressed((e) => {
+            if (this.disabled) {
+                return;
+            }
+            callback(e);
+        });
+        return this;
+    }
+    whenLongPressed(callback) {
+        super.whenLongPressed((e) => {
             if (this.disabled) {
                 return;
             }
@@ -3241,6 +3339,7 @@ class ZFractionInput extends Z {
         this.$int.setValue(time[0] + "");
         this.$nume.setValue(time[1] + "");
         this.$deno.setValue(time[2] + "");
+        return this;
     }
     get disabled() {
         return this._disabled;
@@ -3458,7 +3557,6 @@ class ZEditableDropdownOptionBox extends Z {
         return this;
     }
 }
-const THRESHOLD = 100;
 class ZSearchBox extends Z {
     constructor(searchable, up = false) {
         super("div");
@@ -3773,6 +3871,7 @@ class JSEditor extends Z {
     constructor() {
         super("div");
         this.editor = new ZTextArea();
+        this.append(this.editor);
     }
     getValue() {
         return this.editor.getValue();
@@ -4555,6 +4654,11 @@ class EventNodePairAddOperation extends Operation {
     }
 }
 */
+/**
+ * 批量添加节点对
+ * 节点对需要有序的，且不能有重叠
+
+ */
 class MultiNodeAddOperation extends ComplexOperation {
     constructor(nodes, seq) {
         let prev = seq.getNodeAt(TimeCalculator.toBeats(nodes[0].time));
@@ -4669,6 +4773,30 @@ class EventNodeEasingChangeOperation extends Operation {
     }
     undo() {
         this.startNode.easing = this.originalValue;
+    }
+}
+// 这个地方得懒一下，不然每亩，导致撤回操作时只能撤回第一个插值节点。
+class EventInterpolationOperation extends ComplexOperation {
+    constructor(eventStartNode, step) {
+        if (eventStartNode.next.type === 1 /* NodeType.TAIL */) {
+            throw new Error("Cannot interpolate on a tailing StartNode");
+        }
+        const subOps = [];
+        const endTime = eventStartNode.next.time;
+        let time = TC.validateIp(TC.add(eventStartNode.time, step));
+        let lastStart = eventStartNode;
+        for (; TC.lt(time, endTime); time = TC.validateIp(TC.add(time, step))) {
+            const value = eventStartNode.getValueAt(TC.toBeats(time));
+            const start = new EventStartNode(time, value);
+            const end = new EventEndNode(time, value);
+            EventNode.connect(end, start); // 之前搞成面对面了，写注释留念
+            subOps.push(EventNodePairInsertOperation.lazy(start, lastStart));
+            lastStart = start;
+        }
+        super(...subOps);
+        this.eventStartNode = eventStartNode;
+        this.step = step;
+        this.updatesEditor = true;
     }
 }
 /*
@@ -5574,6 +5702,11 @@ class MultiNodeEditor extends SideEntityEditor {
         const size = this.target.size;
         const sequenceIDs = new Set;
         for (const node of this.target) {
+            if (!node.parentSeq) {
+                // 别放孤儿进来
+                this.target.delete(node);
+                continue;
+            }
             sequenceIDs.add(node.parentSeq.id);
         }
         this.$title.text(`Multi Nodes (${size} nodes from ${Array.from(sequenceIDs).join(", ")})`);
@@ -5582,6 +5715,11 @@ class MultiNodeEditor extends SideEntityEditor {
 class EventEditor extends SideEntityEditor {
     constructor() {
         super();
+        this.$titleContent = $("span");
+        this.$goPrev = new ZButton("prev").attr("title", "click to go to previous node,\nlong press to apply last change to previous node");
+        this.$goNext = new ZButton("next").attr("title", "click to go to next node,\nlong press to apply last change to next node");
+        this.$applyLast = new ZButton("Apply last Operation (delta) to this Node")
+            .addClass("progressive", "side-editor-whole-line");
         this.$warning = $("span").addClass("side-editor-warning");
         this.$time = new ZFractionInput();
         this.$value = new ZInputBox();
@@ -5593,20 +5731,72 @@ class EventEditor extends SideEntityEditor {
         this.$templateEasing = new ZInputBox().addClass("template-easing-box");
         this.$templateLeft = new ZInputBox().attr("placeholder", "left").setValue("0.0");
         this.$templateRight = new ZInputBox().attr("placeholder", "right").setValue("1.0");
+        this.$parametricOuter = $("div");
         this.$parametric = new ZInputBox();
+        this.$interpolationOuter = $("div").addClass("flex-row", "side-editor-whole-line");
+        this.$interpolationStep = new ZFractionInput().setValue([0, 1, 16]);
+        this.$interpolateBtn = new ZButton("Interpolate");
         this.$bezierEditor = new BezierEditor(window.innerWidth * 0.2);
-        this.$title.text("EventNode (NULL)");
+        this.$titleContent.text("EventNode (NULL)");
+        this.$title.append(this.$titleContent, this.$goPrev, this.$goNext);
+        this.$title
+            .addClass("flex-row")
+            .css("width", "100%");
         this.addClass("event-editor");
+        this.$goPrev.whenShortPressed((e) => {
+            let target = this.target.previous;
+            if (e.altKey && target.previous.type !== 0 /* NodeType.HEAD */) {
+                target = target.previous;
+            }
+            this.target = target;
+        });
+        this.$goPrev.whenLongPressed(() => {
+            const prev = this.target.previous;
+            applyOpToNode(prev);
+        });
+        this.$goNext.whenShortPressed((e) => {
+            let target = this.target.next;
+            if (e.altKey && target.next.type !== 1 /* NodeType.TAIL */) {
+                target = target.next;
+            }
+            this.target = target;
+        });
+        this.$goNext.whenLongPressed(() => {
+            const next = this.target.next;
+            applyOpToNode(next);
+        });
+        const applyOpToNode = (node) => {
+            const listOperations = editor.operationList.operations;
+            const operation = listOperations[listOperations.length - 1];
+            if (!operation) {
+                return void notify("There is no operation done in the OperatonList");
+            }
+            if (!(operation instanceof EventNodeValueChangeOperation)) {
+                notify("Last operation is not EventNodeValueChangeOperation");
+                return;
+            }
+            const delta = operation.value - operation.originalValue;
+            editor.operationList.do(new EventNodeValueChangeOperation(node, node.value + delta));
+        };
+        this.$applyLast.onClick(() => {
+            const node = this.target;
+            if (!node) {
+                return void notify("The target of this editor has been garbage-collected.");
+            }
+            applyOpToNode(node);
+        });
         this.$normalOuter.append(this.$easing, this.$normalLeft, this.$normalRight);
+        this.$parametricOuter.append(this.$parametric);
+        this.$interpolationOuter.append(this.$interpolateBtn, $("span").text("with Step: ").css("alignSelf", "center"), this.$interpolationStep);
         this.$radioTabs = new ZRadioTabs("easing-type", {
             "Normal": this.$normalOuter,
             "Template": this.$templateEasing,
             "Bezier": this.$bezierEditor,
-            "Parametric": this.$parametric
+            "Parametric": this.$parametricOuter
         });
         this.$delete = new ZButton("delete").addClass("destructive")
             .onClick(() => editor.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
-        this.$body.append(this.$warning, $("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$radioTabs, $("span").text("del"), this.$delete);
+        this.$body.append(this.$warning, $("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$applyLast, this.$radioTabs, this.$interpolationOuter, $("span").text("del"), this.$delete);
         this.$time.onChange((t) => {
             editor.operationList.do(new EventNodeTimeChangeOperation(this.target, t));
         });
@@ -5620,6 +5810,12 @@ class EventEditor extends SideEntityEditor {
         });
         this.$parametric.whenValueChange(() => {
             this.setParametricEasing(this.$parametric.getValue());
+        });
+        this.$interpolateBtn.onClick(() => {
+            if (!this.target) {
+                notify("The target has been garbage-collected.");
+            }
+            editor.operationList.do(new EventInterpolationOperation(EventNode.getStartEnd(this.target)[0], this.$interpolationStep.getValue()));
         });
         this.$radioTabs.$radioBox.onChange((id) => {
             if (id === 0) { // Normal
@@ -5680,7 +5876,7 @@ class EventEditor extends SideEntityEditor {
     update() {
         const eventNode = this.target;
         if (!eventNode) {
-            this.$title.text("EventNode (NULL)");
+            this.$titleContent.text("EventNode (NULL)");
             return;
         }
         if (eventNode.parentSeq !== editor.eventCurveEditors.selectedEditor.target) {
@@ -5691,7 +5887,9 @@ class EventEditor extends SideEntityEditor {
         }
         const isBPM = eventNode instanceof BPMStartNode || eventNode instanceof BPMEndNode;
         const isStart = eventNode instanceof EventStartNode;
-        this.$title.text(`${isBPM ? "BPM" : "Event"}${isStart ? "Start" : "End"}Node (from ${eventNode.parentSeq.id})`);
+        this.$titleContent.text(`${isBPM ? "BPM" : "Event"}${isStart ? "Start" : "End"}Node (from ${eventNode.parentSeq.id})`);
+        this.$goPrev.disabled = eventNode.previous.type === 0 /* NodeType.HEAD */;
+        this.$goNext.disabled = eventNode.next.type === 1 /* NodeType.TAIL */;
         this.$time.setValue(eventNode.time);
         this.$value.setValue(eventNode.value + "");
         if (eventNode.innerEasing instanceof NormalEasing) {
@@ -6251,8 +6449,6 @@ class EventCurveEditors extends Z {
                 this[type].newNodeState = NewNodeState["controls" + val];
             }
         });
-        this.$copyButton = new ZButton("Copy");
-        this.$pasteButton = new ZButton("Paste");
         this.$encapsuleBtn = new ZButton("Encapsule");
         this.$templateNameInput = new ZInputBox().attr("size", "4");
         this.$templateNameInput.whenValueChange((name) => {
@@ -6280,7 +6476,7 @@ class EventCurveEditors extends Z {
                 editor.update();
             }
         });
-        this.$bar.append(this.$typeSelect, this.$layerSelect, this.$timeSpanInput, this.$rangeInput, this.$selectOption, this.$editSwitch, this.$copyButton, this.$pasteButton, this.$easingBox, this.$newNodeStateSelect, this.$templateNameInput, this.$encapsuleBtn);
+        this.$bar.append(this.$typeSelect, this.$layerSelect, this.$timeSpanInput, this.$rangeInput, this.$selectOption, this.$editSwitch, this.$easingBox, this.$newNodeStateSelect, this.$templateNameInput, this.$encapsuleBtn);
         this.append(this.$bar);
         this.nodesSelection = new Set();
     }
@@ -6544,12 +6740,6 @@ class EventCurveEditor {
         });
         this.canvas.addEventListener("mouseleave", () => {
             this.mouseIn = false;
-        });
-        parent.$copyButton.onClick(() => {
-            this.copy();
-        });
-        parent.$pasteButton.onClick(() => {
-            this.paste();
         });
         parent.$encapsuleBtn.onClick(() => {
             if (!this.active) {
@@ -7135,8 +7325,6 @@ class NotesEditor extends Z {
         this.$typeOption = new ZDropdownOptionBox(["tap", "hold", "flick", "drag"].map((v) => new BoxOption(v)));
         this.$noteAboveSwitch = new ZSwitch("below", "above");
         this.$selectOption = new ZDropdownOptionBox(Object.values(this.selectOptions));
-        this.$copyButton = new ZButton("Copy");
-        this.$pasteButton = new ZButton("Paste");
         this.$editButton = new ZSwitch("Edit");
         this.$timeSpanInput = new ZInputBox("2").attr("placeholder", "TimeSpan").attr("size", "3");
         this.$xLineCountInput = new ZArrowInputBox(10).attr("placeholder", "TimeLineCount").attr("size", "3");
@@ -7167,12 +7355,6 @@ class NotesEditor extends Z {
         this.$noteAboveSwitch.whenClickChange((checked) => this.noteAbove = checked);
         this.$noteAboveSwitch.checked = true;
         this.notesSelection = new Set();
-        this.$copyButton.onClick(() => {
-            this.copy();
-        });
-        this.$pasteButton.onClick(() => {
-            this.paste();
-        });
         this.$editButton.whenClickChange((checked) => {
             this.state = checked ? NotesEditorState.edit : NotesEditorState.select;
         });
@@ -7186,7 +7368,7 @@ class NotesEditor extends Z {
             this.showsNNNListAttachable = checked;
         });
         this.$showsNNNListAttachable.checked = true;
-        this.$statusBar.append(this.$listOption, this.$timeSpanInput, this.$xLineCountInput, this.$typeOption, this.$noteAboveSwitch, this.$editButton, this.$copyButton, this.$pasteButton, this.$selectOption, this.$showsNNNListAttachable);
+        this.$statusBar.append(this.$listOption, this.$timeSpanInput, this.$xLineCountInput, this.$typeOption, this.$noteAboveSwitch, this.$editButton, this.$selectOption, this.$showsNNNListAttachable);
         this.editor = editor;
         this.padding = 10;
         this.targetNNList = null;
@@ -7574,7 +7756,7 @@ class NotesEditor extends Z {
         }
         else {
             this.selectionManager.setBasePriority(1);
-            renderLine(this.target);
+            renderLine(this.target, false);
             this.selectionManager.setBasePriority(0);
         }
         // 绘制侧边音符节点标识
@@ -8005,7 +8187,10 @@ class SaveDialog extends ZDialog {
     }
 }
 const tips = [
+    "奇了个大谱",
+    "奇谱他妈给奇谱开门奇谱到家了",
     "奇谱发生器是Phigros自制谱界最好用的制谱器，每天不写30个奇谱就会有300条判定线在我身上爬",
+    "地球是太空中最好的行星，每天住在地球上，就是有101个奇谱发生器在我身上爬",
     "你说得对，但是奇谱发生器是由Zes Minkey Young自主研发的一款制谱器，后面的忘了",
     "本制谱器没有使用lchzh3473的sim-phi制作",
     "制谱器一定要有谱面✍✍✍✍✍✍✍✍",
@@ -8020,6 +8205,11 @@ const tips = [
     "按两下“切换”键可以进入用户脚本编辑器，可以用JavaScript来写谱哦，最好在VSCode里写了再复制过来",
     "如果有Git的话，可以在server/config.json里启用版本控制，这样谱面会保存到Git里",
     "KPAJSON本质上还是RPEJSON改的，点“编译”可以生成RPEJSON",
+    "奇铺发生器再打广告我给你ban了",
+    "啊啊啊作者你的下载地址在哪里啊啊啊啊",
+    "此软件的真实性存疑，请谨慎甄别",
+    "RPE=唯一真神，KPA=我不知道怎么用",
+    "能不去参考别人现成的结构，实现自己的创意，这本身就很值得鼓励，我不可能去攻击这样的创作者",
     "男人只是在Hold里塞了100个Tap，就被Phira审核活活打断了双腿",
     "2573 + 30 ^ 2 = 3473",
     "天苍苍，野茫茫，风吹草低见牛羊",
@@ -8082,6 +8272,9 @@ class Editor extends EventTarget {
         this.lineInfoEle = document.getElementById("lineInfo");
         this.$saveButton = new ZButton("Save");
         this.$compileButton = new ZButton("Compile");
+        this.$playbackRate = new ZDropdownOptionBox(["1.0x", "1.5x", "2.0x", "0.5x", "0.25x", "0.75x",
+            "1.5x!", "2.0x!", "0.5x!", "0.25x!", "0.75x!"
+        ].map((n) => new BoxOption(n)));
         this.$offsetInput = new ZInputBox().attr("size", "3");
         this.$switchButton = new ZButton("Switch");
         this.$judgeLinesEditorLayoutSelector = new ZDropdownOptionBox([
@@ -8152,9 +8345,15 @@ class Editor extends EventTarget {
         this.$timeDivisor.setValue(4);
         this.timeDivisor = 4;
         // PlaybackRate
-        this.$playbackRate = new ZDropdownOptionBox(["1.0x", "1.5x", "2.0x", "0.5x", "0.25x", "0.75x"].map((n) => new BoxOption(n)))
-            .whenValueChange((rateStr) => {
-            this.player.audio.playbackRate = parseFloat(rateStr);
+        this.$playbackRate.whenValueChange((rateStr) => {
+            const audio = this.player.audio;
+            audio.playbackRate = parseFloat(rateStr);
+            if (rateStr.endsWith("!")) {
+                audio.preservesPitch = false;
+            }
+            else {
+                audio.preservesPitch = true;
+            }
         });
         // Save Button
         this.$saveButton.disabled = true;
@@ -8237,6 +8436,7 @@ class Editor extends EventTarget {
             });
             this.operationList.addEventListener("error", (e) => {
                 notify(e.error.message);
+                throw e.error;
             });
             // @ts-expect-error
             this.operationList.addEventListener("needsreflow", (ev) => {
@@ -8497,6 +8697,7 @@ class RPEChartCompiler {
     constructor(chart) {
         this.chart = chart;
         this.sequenceMap = new Map();
+        this.interpolationStep = [0, 1, 16];
     }
     compileChart() {
         console.time("compileChart");
@@ -8580,13 +8781,52 @@ class RPEChartCompiler {
     }
     dumpEventNodeSequence(sequence) {
         const nodes = [];
+        const interpolationStep = this.interpolationStep;
         sequence = this.substitute(sequence);
         let node = sequence.head.next;
         while (true) {
             const end = node.next;
             if (end.type === 1 /* NodeType.TAIL */)
                 break;
-            nodes.push(node.dump());
+            if (node.easing instanceof ParametricEquationEasing) {
+                let cur = node.time;
+                const endTime = end.time;
+                let value = node.value;
+                for (; TC.lt(cur, endTime);) {
+                    const nextTime = TC.validateIp(TC.add(cur, interpolationStep));
+                    const nextValue = node.getValueAt(TC.toBeats(nextTime));
+                    nodes.push({
+                        bezier: 0,
+                        bezierPoints: [0, 0, 0, 0],
+                        easingLeft: 0.0,
+                        easingRight: 0.0,
+                        easingType: 1,
+                        start: value,
+                        startTime: cur,
+                        end: nextValue,
+                        endTime: nextTime,
+                        linkgroup: 0
+                    });
+                    cur = nextTime;
+                    value = nextValue;
+                }
+                // 所切割的事件长度并不必然是step的整数倍
+                nodes.push({
+                    bezier: 0,
+                    bezierPoints: [0, 0, 0, 0],
+                    easingLeft: 0.0,
+                    easingRight: 0.0,
+                    easingType: 1,
+                    start: value,
+                    startTime: cur,
+                    end: end.value,
+                    endTime: endTime,
+                    linkgroup: 0
+                });
+            }
+            else {
+                nodes.push(node.dump());
+            }
             node = end.next;
         }
         nodes.push(node.dumpAsLast());

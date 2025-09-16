@@ -99,12 +99,12 @@ async function main() {
     prompt("最后把VERSION修改");
     await Bun.write(versionFile, nextVersion);
 
-    prompt("现在可以提交了");
-    await runProgramAndPrintToConsole(["git", "add", ".."]);
-    await runProgramAndPrintToConsole(["git", "commit", "-m", `chore: bump to ${nextVersion}`]);
-
-    prompt("现在可以tag了");
-    await runProgramAndPrintToConsole(["git", "tag", "v" + nextVersion]);
+    if (prompt("现在可以提交了 (Y/N)") !== "N") {
+        await runProgramAndPrintToConsole(["git", "add", ".."]);
+        await runProgramAndPrintToConsole(["git", "commit", "-m", `chore: bump to ${nextVersion}`]);
+    }
+    if (prompt("现在可以tag了 (Y/N)") !== "N")
+        await runProgramAndPrintToConsole(["git", "tag", "v" + nextVersion]);
 
 }
 
