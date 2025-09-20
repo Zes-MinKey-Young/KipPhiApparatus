@@ -19,20 +19,21 @@ function arrEq<T>(arr1: Array<T>, arr2: Array<T>) {
     return true;
 }
 
-class EventNodeLike<T extends NodeType> {
+class EventNodeLike<T extends NodeType, VT = number> {
     type: T;
     /** 后一个事件节点 */
-    next: [EventStartNode, null, ENOrTail][T] | null = null;
+    next: [EventStartNode<VT>, null, ENOrTail<VT>][T] | null = null;
     /** 前一个事件节点 */
-    previous: [null, EventStartNode, ENOrHead][T] | null = null;
-    parentSeq: EventNodeSequence;
+    previous: [null, EventStartNode<VT>, ENOrHead<VT>][T] | null = null;
+    parentSeq: EventNodeSequence<VT>;
     constructor(type: T) {
         this.type = type;
     }
 }
-type ENOrTail = EventNode | EventNodeLike<NodeType.TAIL>;
-type ENOrHead = EventNode | EventNodeLike<NodeType.HEAD>;
-type AnyEN = EventNode | EventNodeLike<NodeType.HEAD> | EventNodeLike<NodeType.TAIL>;
+type ENOrTail<VT = number> = EventNode<VT> | EventNodeLike<NodeType.TAIL, VT>;
+type ENOrHead<VT = number> = EventNode<VT> | EventNodeLike<NodeType.HEAD, VT>;
+type AnyEN<VT = number> = EventNode<VT> | EventNodeLike<NodeType.HEAD, VT> | EventNodeLike<NodeType.TAIL, VT>;
+type EvSoE<VT = number>    = EventEndNode<VT> | EventStartNode<VT>;
 
 /**
  * 事件节点基类
@@ -49,17 +50,18 @@ type AnyEN = EventNode | EventNodeLike<NodeType.HEAD> | EventNodeLike<NodeType.T
  * 与RPE不同的是，KPA使用两个节点来表示一个事件，而不是一个对象。
  * Different from that in RPE, KPA uses two nodes rather than one object to represent an event.
  */
-abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
+abstract class EventNode<VT = number> extends EventNodeLike<NodeType.MIDDLE, VT> {
     time: TimeT;
-    value: number;
+    value: VT;
     easing: Easing;
-    constructor(time: TimeT, value: number) {
+    constructor(time: TimeT, value: VT) {
         super(NodeType.MIDDLE);
-        this.time = TimeCalculator.validateIp(time);
+        this.time = TimeCalculator.validateIp([...time]);
+        // @ts-ignore 不清楚什么时候会是undefined，但是留着准没错
         this.value = value ?? 0;
         this.easing = linearEasing
     }
-    clone(offset: TimeT): EventStartNode | EventEndNode {
+    clone(offset: TimeT): EventStartNode<VT> | EventEndNode<VT> {
         const ret = new (this.constructor as (typeof EventStartNode | typeof EventEndNode))
                         (offset ? TimeCalculator.add(this.time, offset) : this.time, this.value);
         ret.easing = this.easing;
@@ -74,7 +76,7 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param templates 
      * @returns 
      */
-    static getEasing(data: EventDataKPA, left: number, right: number, templates: TemplateEasingLib): Easing {
+    static getEasing(data: EventDataKPA<any>, left: number, right: number, templates: TemplateEasingLib): Easing {
         if ((left && right) && (left !== 0.0 || right !== 1.0)) {
             return new SegmentedEasing(EventNode.getEasing(data, 0.0, 1.0, templates), left, right)
         }
@@ -105,7 +107,7 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param templates 
      * @returns 
      */
-    static fromEvent(data: EventDataRPELike, templates: TemplateEasingLib): [EventStartNode, EventEndNode] {
+    static fromEvent<VT extends RGB | number>(data: EventDataRPELike<VT>, templates: TemplateEasingLib): [EventStartNode<VT>, EventEndNode<VT>] {
         let start = new EventStartNode(data.startTime, data.start)
         let end = new EventEndNode(data.endTime, data.end);
         start.easing = EventNode.getEasing(data, data.easingLeft, data.easingRight, templates);
@@ -116,9 +118,38 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
         }
         return [start, end]
     }
-    static connect(node1: EventStartNode, node2: EventEndNode | EventNodeLike<NodeType.TAIL>): void
-    static connect(node1: EventEndNode | EventNodeLike<NodeType.HEAD>, node2: EventStartNode): void
-    static connect(node1: ENOrHead, node2: ENOrTail): void {
+    static fromTextEvent(data: EventDataRPELike<string>, templates: TemplateEasingLib) : [EventStartNode<string>, EventEndNode<string>] {
+        let startValue = data.start;
+        let endValue = data.end;
+        let interpreteAs: InterpreteAs = InterpreteAs.str;
+        if (/%P%/.test(startValue) && /%P%/.test(endValue)) {
+            startValue = startValue.replace(/%P%/g, "");
+            endValue = endValue.replace(/%P%/g, "");
+            if (startValue.includes(".") || startValue.includes("e") || startValue.includes("E")
+            ||  endValue.includes(".") || endValue.includes("e") || endValue.includes("E")) {
+                startValue = parseFloat(startValue) + "";
+                endValue = parseFloat(endValue) + "";
+                interpreteAs = InterpreteAs.float;
+            } else {
+                startValue = parseInt(startValue) + "";
+                endValue = parseInt(endValue) + "";
+                interpreteAs = InterpreteAs.int;
+            }
+        }
+        let start = new EventStartNode<string>(data.startTime, startValue);
+        let end = new EventEndNode<string>(data.endTime, endValue);
+        start.interpretedAs = interpreteAs;
+        start.easing = EventNode.getEasing(data, data.easingLeft, data.easingRight, templates);
+        EventNode.connect(start, end)
+        if (!start.easing) {
+            start.easing = linearEasing;
+            console.error("No easing found for event:", data, start, "will use linear by default")
+        }
+        return [start, end]
+    }
+    static connect<VT>(node1: EventStartNode<VT>, node2: EventEndNode<VT> | EventNodeLike<NodeType.TAIL, VT>): void
+    static connect<VT>(node1: EventEndNode<VT> | EventNodeLike<NodeType.HEAD, VT>, node2: EventStartNode<VT>): void
+    static connect<VT>(node1: ENOrHead<VT>, node2: ENOrTail<VT>): void {
         node1.next = node2;
         node2.previous = node1;
         if (node1 && node2) {
@@ -132,7 +163,13 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
         node.next = null;
     }
     */
-    static removeNodePair(endNode: EventEndNode, startNode: EventStartNode): [EventStartNode | EventNodeLike<NodeType.HEAD>, EventStartNode | EventNodeLike<NodeType.TAIL>] {
+    /**
+     * 
+     * @param endNode 
+     * @param startNode 
+     * @returns 应该在何范围内更新跳数组
+     */
+    static removeNodePair<VT>(endNode: EventEndNode<VT>, startNode: EventStartNode<VT>): [EventStartNode<VT> | EventNodeLike<NodeType.HEAD, VT>, EventStartNode<VT> | EventNodeLike<NodeType.TAIL,VT>] {
         const prev = endNode.previous;
         const next = startNode.next;
         prev.next = next;
@@ -143,7 +180,7 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
         startNode.parentSeq = null; // 每亩的东西（
         return [this.previousStartOfStart(prev), this.nextStartOfEnd(next)]
     }
-    static insert(node: EventStartNode, tarPrev: EventStartNode): [EventNodeLike<NodeType.HEAD> | EventStartNode, EventStartNode | EventNodeLike<NodeType.TAIL>] {
+    static insert<VT>(node: EventStartNode<VT>, tarPrev: EventStartNode<VT>): [EventNodeLike<NodeType.HEAD, VT> | EventStartNode<VT>, EventStartNode<VT> | EventNodeLike<NodeType.TAIL, VT>] {
         const tarNext = tarPrev.next;
         if (node.previous.type === NodeType.HEAD) {
             throw new Error("Cannot insert a head node before any node");
@@ -158,7 +195,7 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param node 
      * @returns the next node if it is a tailer, otherwise the next start node
      */
-    static nextStartOfStart(node: EventStartNode) {
+    static nextStartOfStart<VT>(node: EventStartNode<VT>) {
         return node.next.type === NodeType.TAIL ? node.next : node.next.next
     }
     /**
@@ -166,10 +203,10 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param node 
      * @returns itself if node is a tailer, otherwise the next start node
      */
-    static nextStartOfEnd(node: EventEndNode | EventNodeLike<NodeType.TAIL>) {
+    static nextStartOfEnd<VT>(node: EventEndNode<VT> | EventNodeLike<NodeType.TAIL, VT>) {
         return node.type === NodeType.TAIL ? node : node.next
     }
-    static previousStartOfStart(node: EventStartNode): EventStartNode | EventNodeLike<NodeType.HEAD> {
+    static previousStartOfStart<VT>(node: EventStartNode<VT>): EventStartNode<VT> | EventNodeLike<NodeType.HEAD, VT> {
         return node.previous.type === NodeType.HEAD ? node.previous : node.previous.previous;
     }
     /**
@@ -177,12 +214,12 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param node 
      * @returns 
      */
-    static secondPreviousStartOfEnd(node: EventEndNode): EventStartNode | EventNodeLike<NodeType.HEAD> {
+    static secondPreviousStartOfEnd<VT>(node: EventEndNode<VT>): EventStartNode<VT> | EventNodeLike<NodeType.HEAD, VT> {
         return this.previousStartOfStart(node.previous);
     }
-    static nextStartInJumpArray(node: EventStartNode): EventStartNode | EventNodeLike<NodeType.TAIL> {
-        if ((<EventEndNode>node.next).next.isLastStart()) {
-            return node.next.next.next;
+    static nextStartInJumpArray<VT>(node: EventStartNode<VT>): EventStartNode<VT> | EventNodeLike<NodeType.TAIL, VT> {
+        if ((node.next as EventEndNode<VT>).next.isLastStart()) {
+            return node.next.next.next as EventNodeLike<NodeType.TAIL, VT>;
         } else {
             return node.next.next;
         }
@@ -192,26 +229,26 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param node 
      * @returns 
      */
-    static getEndStart(node: EventStartNode | EventEndNode): [EventEndNode, EventStartNode] {
+    static getEndStart<VT>(node: EventStartNode<VT> | EventEndNode<VT>): [EventEndNode<VT>, EventStartNode<VT>] {
         if (node instanceof EventStartNode) {
             if (node.isFirstStart()) {
                 throw new Error("Cannot get previous start node of the first start node");
             }
-            return [<EventEndNode>node.previous, node]
+            return [<EventEndNode<VT>>node.previous, node]
         } else if (node instanceof EventEndNode) {
             return [node, node.next]
         }
     }
-    static getStartEnd(node: EventStartNode | EventEndNode): [EventStartNode, EventEndNode] {
+    static getStartEnd<VT>(node: EventStartNode<VT> | EventEndNode<VT>): [EventStartNode<VT>, EventEndNode<VT>] {
         if (node instanceof EventStartNode) {
-            return [node, <EventEndNode>node.next]
+            return [node, <EventEndNode<VT>>node.next]
         } else if (node instanceof EventEndNode) {
-            return [<EventStartNode>node.previous, node]
+            return [<EventStartNode<VT>>node.previous, node]
         } else {
             throw new Error("Invalid node type")
         }
     }
-    static setToNewOrderedArray(dest: TimeT, set: Set<EventStartNode>): [EventStartNode[], EventStartNode[]] {
+    static setToNewOrderedArray<VT>(dest: TimeT, set: Set<EventStartNode<VT>>): [EventStartNode<VT>[], EventStartNode<VT>[]] {
         const nodes = [...set]
         nodes.sort((a, b) => TimeCalculator.gt(a.time, b.time) ? 1 : -1);
         const offset = TimeCalculator.sub(dest, nodes[0].time)
@@ -263,27 +300,91 @@ abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
 }
 
 
+const getValueFns = [
+    (current: number, timeDelta: number, value: number, nextVal: number, easing: Easing) => {
+        
+        // @ts-ignore TSC脑壳有问题
+        const valueDelta = nextVal - value
+        // 其他类型，包括普通缓动和非钩定模板缓动
+        return value + easing.getValue(current / timeDelta) * valueDelta
+    },
+    (current: number, timeDelta: number, value: string, nextVal: string, easing: Easing, interpretedAs: InterpreteAs): string => {
 
-class EventStartNode extends EventNode {
-    next: EventEndNode | EventNodeLike<NodeType.TAIL>;
-    previous: EventEndNode | EventNodeLike<NodeType.HEAD>;
+        if (interpretedAs === InterpreteAs.float) {
+            const start = parseFloat(value);
+            const delta = parseFloat(nextVal as string) - start;
+            return start + this.easing.getValue(current / timeDelta) * delta + "";
+        } else if (interpretedAs === InterpreteAs.int) {
+            const start = parseInt(value);
+            const delta = parseInt(nextVal as string) - start;
+            return start + Math.round(this.easing.getValue(current / timeDelta) * delta) + "";
+        } else if (value.startsWith(nextVal as string)) {
+            const startLen = (nextVal as string).length;
+            const deltaLen = value.length - startLen;
+            const len = startLen + Math.floor(deltaLen * easing.getValue(current / timeDelta));
+            return value.substring(0, len);
+        } else if ((nextVal as string).startsWith(value)) {
+            const startLen = value.length;
+            const deltaLen = (nextVal as string).length - startLen;
+            const len = startLen + Math.floor(deltaLen * easing.getValue(current / timeDelta));
+            return (nextVal as string).substring(0, len);
+        } else {
+            return value;
+        }
+
+    },
+    (current: number, timeDelta: number, value: RGB, nextValue: RGB, easing: Easing) => {
+        return (value as RGB).map((v, i) => {
+            const nextVal = nextValue[i];
+            const value = v;
+            if (nextVal === value) {
+                return value;
+            } else {
+                const delta = nextVal - value;
+                return value + easing.getValue(current / timeDelta) * delta;
+            }
+        })
+    }
+] as const;
+
+enum InterpreteAs {
+    str,
+    int,
+    float
+}
+
+class EventStartNode<VT = number> extends EventNode<VT> {
+    next: EventEndNode<VT> | EventNodeLike<NodeType.TAIL, VT>;
+    previous: EventEndNode<VT> | EventNodeLike<NodeType.HEAD, VT>;
     /** 
      * 对于速度事件，从计算时的时刻到此节点的总积分
      */
     cachedIntegral?: number;
-    constructor(time: TimeT, value: number) {
+    constructor(time: TimeT, value: VT) {
         super(time, value);
+        // 最史的一集，what can i say
+        if (typeof value === "number") {
+            // @ts-ignore
+            this.getValueFn = getValueFns[0];
+        } else if (typeof value === "string") {
+            // @ts-ignore
+            this.getValueFn = getValueFns[1];
+        } else {
+            // @ts-ignore
+            this.getValueFn = getValueFns[2];
+        }
     }
     get easingIsSegmented() {
         return this.easing instanceof SegmentedEasing;
     }
-    parentSeq: EventNodeSequence;
+    parentSeq: EventNodeSequence<VT>;
     /**
      * 因为是RPE和KPA共用的方法所以easingType可以为字符串
      * @returns 
      */
-    dump(): EventDataKPA {
-        const endNode = this.next as EventEndNode;
+    dump(): EventDataKPA<VT> {
+
+        const endNode = this.next as EventEndNode<VT>;
         const isSegmented = this.easingIsSegmented
         const easing = isSegmented ? (this.easing as SegmentedEasing).easing : this.easing;
         return {
@@ -306,7 +407,8 @@ class EventStartNode extends EventNode {
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
             startTime: this.time,
-            isParametric: easing instanceof ParametricEquationEasing
+            isParametric: easing instanceof ParametricEquationEasing,
+            interpreteAs: typeof this.value === "string" ? this.interpretedAs : undefined
         }
     }
     /**
@@ -315,7 +417,7 @@ class EventStartNode extends EventNode {
      * 限最后一个StartNode使用
      * @returns 
      */
-    dumpAsLast(): EventDataRPELike {
+    dumpAsLast(): EventDataRPELike<VT> {
         const isSegmented = this.easingIsSegmented
         const easing = isSegmented ? (this.easing as SegmentedEasing).easing : this.easing;
         return {
@@ -325,7 +427,6 @@ class EventStartNode extends EventNode {
                 [0, 0, 0, 0],
             easingLeft: isSegmented ? (this.easing as SegmentedEasing).left : 0.0,
             easingRight: isSegmented ? (this.easing as SegmentedEasing).right : 1.0,
-            // @ts-expect-error
             easingType: easing instanceof TemplateEasing ?
                 (easing.name) :
                 easing instanceof NormalEasing ?
@@ -338,7 +439,8 @@ class EventStartNode extends EventNode {
             startTime: this.time,
         }
     }
-    getValueAt(beats: number) {
+    interpretedAs: InterpreteAs = InterpreteAs.str;
+    getValueAt(beats: number): VT {
         // 除了尾部的开始节点，其他都有下个节点
         // 钩定型缓动也有
         if (this.next.type === NodeType.TAIL) {
@@ -353,17 +455,15 @@ class EventStartNode extends EventNode {
         if (this.easing instanceof ParametricEquationEasing) {
             return this.easing.getValue(current / timeDelta);
         }
-        let valueDelta = this.next.value - this.value
-        if (valueDelta === 0) {
-            return this.value
+        const nextVal = (this.next as EventEndNode<VT>).value;
+        const value = this.value;
+        if (nextVal === value) {
+            return value;
         }
-        if (!this.easing) {
-            debugger
-        }
-        // 其他类型，包括普通缓动和非钩定模板缓动
-        return this.value + this.easing.getValue(current / timeDelta) * valueDelta
+        return this.getValueFn(current, timeDelta, value, nextVal, this.easing, this.interpretedAs);
     }
-    getSpeedValueAt(beats: number) {
+    private getValueFn: (current: number, timeDelta: number, value: VT, nextVal: VT, easing: Easing, interpreteAs?: InterpreteAs) => VT
+    getSpeedValueAt(this: EventStartNode<number>, beats: number) {
         if (this.next.type === NodeType.TAIL) {
             return this.value
         }
@@ -379,10 +479,10 @@ class EventStartNode extends EventNode {
     /**
      * 积分获取位移
      */
-    getIntegral(beats: number, timeCalculator: TimeCalculator) {
+    getIntegral(this: EventStartNode<number>, beats: number, timeCalculator: TimeCalculator) {
         return timeCalculator.segmentToSeconds(TimeCalculator.toBeats(this.time), beats) * (this.value + this.getSpeedValueAt(beats)) / 2 * 120 // 每单位120px
     }
-    getFullIntegral(timeCalculator: TimeCalculator) {
+    getFullIntegral(this: EventStartNode<number>, timeCalculator: TimeCalculator) {
         if (this.next.type === NodeType.TAIL) {
             console.log(this)
             throw new Error("getFullIntegral不可用于尾部节点")
@@ -399,10 +499,10 @@ class EventStartNode extends EventNode {
     isLastStart() {
         return this.next && this.next.type === NodeType.TAIL
     }
-    clone(offset?: TimeT): EventStartNode {
-        return super.clone(offset) as EventStartNode;
+    clone(offset?: TimeT): EventStartNode<VT> {
+        return super.clone(offset) as EventStartNode<VT>;
     };
-    clonePair(offset: TimeT): EventStartNode {
+    clonePair(offset: TimeT): EventStartNode<VT> {
         const endNode = this.previous.type !== NodeType.HEAD ? this.previous.clone(offset) : new EventEndNode(this.time, this.value);
         const startNode = this.clone(offset);
         EventNode.connect(endNode, startNode);
@@ -431,19 +531,19 @@ class EventStartNode extends EventNode {
     }
 }
 
-class EventEndNode extends EventNode {
-    next: EventStartNode;
-    previous: EventStartNode;
+class EventEndNode<VT = number> extends EventNode<VT> {
+    next: EventStartNode<VT>;
+    previous: EventStartNode<VT>;
     get parentSeq() {return this.previous?.parentSeq || null}
-    set parentSeq(_parent: EventNodeSequence) {}
-    constructor(time: TimeT, value: number) {
+    set parentSeq(_parent: EventNodeSequence<VT>) {}
+    constructor(time: TimeT, value: VT) {
         super(time, value);
     }
     getValueAt(beats: number) {
         return this.previous.getValueAt(beats);
     }
-    clone(offset?: TimeT): EventEndNode {
-        return super.clone(offset) as EventEndNode;
+    clone(offset?: TimeT): EventEndNode<VT> {
+        return super.clone(offset) as EventEndNode<VT>;
     }
 }
 
@@ -467,15 +567,15 @@ class EventEndNode extends EventNode {
  * 插入或删除节点时，需要更新跳数组。
  * Remember to update the jump array when inserting or deleting nodes.
  */
-class EventNodeSequence {
+class EventNodeSequence<VT = number> { // 泛型的传染性这一块
     chart: Chart;
     /** id follows the format `#${lineid}.${layerid}.${typename}` by default */
     id: string;
     /** has no time or value */
-    head: EventNodeLike<NodeType.HEAD>;
+    head: EventNodeLike<NodeType.HEAD, VT>;
     /** has no time or value */
-    tail: EventNodeLike<NodeType.TAIL>;
-    jump?: JumpArray<AnyEN>;
+    tail: EventNodeLike<NodeType.TAIL, VT>;
+    jump?: JumpArray<AnyEN<VT>>;
     listLength: number;
     /** 一定是二的幂，避免浮点误差 */
     jumpAverageBeats: number;
@@ -493,19 +593,37 @@ class EventNodeSequence {
         // this.startNodes = [];
         // this.endNodes = [];
     }
-    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPELike[], chart: Chart, endValue?: number) {
-        const {templateEasingLib: templates, timeCalculator} = chart
+    static getDefaultValueFromEventType(type: EventType) {
+        
+        return type === EventType.speed                               ? 10  :
+               type === EventType.scaleX || type === EventType.scaleY ? 1.0 :
+               type === EventType.text                                ? ""  :
+               type === EventType.color                               ? [0, 0, 0] :
+               0
+    }
+    static fromRPEJSON<T extends EventType, VT = number>(type: T, data: EventDataRPELike<VT>[], chart: Chart, endValue?: number) {
+        const {templateEasingLib: templates} = chart
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
         // console.log(isSpeed)
-        const seq = new EventNodeSequence(type, type === EventType.easing ? TimeCalculator.toBeats(data[length - 1].endTime) : chart.effectiveBeats);
+        const seq = new EventNodeSequence<VT>(type, type === EventType.easing ? TimeCalculator.toBeats(data[length - 1].endTime) : chart.effectiveBeats);
         let listLength = length;
-        let lastEnd: EventEndNode | EventNodeLike<NodeType.HEAD> = seq.head
+        let lastEnd: EventEndNode<VT> | EventNodeLike<NodeType.HEAD, VT> = seq.head;
+        // 如果第一个事件不从0时间开始，那么添加一对面对面节点来垫背
+        if (TC.ne(data[0].startTime, [0, 0, 1])) {
+            const value = data[0].start
+            const start = new EventStartNode<VT>([0, 0, 1], value as VT);
+            const end = new EventEndNode<VT>(data[0].startTime, value as VT);
+            EventNode.connect(lastEnd, start);
+            EventNode.connect(start, end);
+            lastEnd = end;
+        }
 
         let lastIntegral: number = 0;
         for (let index = 0; index < length; index++) {
             const event = data[index];
-            let [start, end] = EventNode.fromEvent(event, templates);
+            // @ts-ignore
+            let [start, end] = (type === EventType.text ? EventNode.fromTextEvent(event, templates) : EventNode.fromEvent(event, templates)) as unknown as [EventStartNode<VT>, EventEndNode<VT>];
             if (lastEnd.type === NodeType.HEAD) {
                 EventNode.connect(lastEnd, start)
             } else if (lastEnd.value === lastEnd.previous.value && lastEnd.previous.easing instanceof NormalEasing) {
@@ -551,9 +669,12 @@ class EventNodeSequence {
      * @param effectiveBeats 
      * @returns 
      */
-    static newSeq(type: EventType, effectiveBeats: number): EventNodeSequence {
-        const sequence = new EventNodeSequence(type, effectiveBeats);
-        const node = new EventStartNode([0, 0, 1], type === EventType.speed ? 10 : 0);
+    static newSeq<T extends EventType>(type: T, effectiveBeats: number): EventNodeSequence<ValueTypeOfEventType<T>> {
+        type V = ValueTypeOfEventType<T>
+        const sequence = new EventNodeSequence<V>(type, effectiveBeats);
+        const node = new EventStartNode<V>(
+            [0, 0, 1], EventNodeSequence.getDefaultValueFromEventType(type) as V
+        );
         EventNode.connect(sequence.head, node)
         EventNode.connect(node, sequence.tail)
         sequence.initJump();
@@ -595,7 +716,7 @@ class EventNodeSequence {
         if (this.head.next === this.tail.previous) {
             return;
         }
-        this.jump = new JumpArray<AnyEN>(
+        this.jump = new JumpArray<AnyEN<VT>>(
             this.head,
             this.tail,
             originalListLength,
@@ -611,7 +732,7 @@ class EventNodeSequence {
                     }
                     return [0, node.next]
                 }
-                const endNode =  <EventEndNode>(<EventStartNode>node).next;
+                const endNode = (node as EventStartNode<VT>).next as EventEndNode<VT>;
                 const time = TimeCalculator.toBeats(endNode.time);
                 const nextNode = endNode.next;
                 if (nextNode.next.type === NodeType.TAIL) {
@@ -620,8 +741,8 @@ class EventNodeSequence {
                     return [time, nextNode]
                 }
             },
-            (node: EventStartNode, beats: number) => {
-                return TimeCalculator.toBeats((<EventEndNode>node.next).time) > beats ? false : EventNode.nextStartInJumpArray(node)
+            (node: EventStartNode<VT>, beats: number) => {
+                return TimeCalculator.toBeats((node.next as EventEndNode<VT>).time) > beats ? false : EventNode.nextStartInJumpArray(node)
             },
             (node: EventStartNode) => {
                 return node.next && node.next.type === NodeType.TAIL ? node.next : node;
@@ -632,7 +753,7 @@ class EventNodeSequence {
             }*/
             )
     }
-    updateJump(from: ENOrHead, to: ENOrTail) {
+    updateJump(from: ENOrHead<VT>, to: ENOrTail<VT>) {
         if (!this.jump || this.effectiveBeats !== this.jump.effectiveBeats) {
             this.initJump();
 
@@ -642,8 +763,9 @@ class EventNodeSequence {
     insert() {
 
     }
-    getNodeAt(beats: number, usePrev: boolean = false): EventStartNode {
-        let node = this.jump?.getNodeAt(beats) as (EventStartNode | EventNodeLike<NodeType.TAIL>) || this.head.next as (EventStartNode | EventNodeLike<NodeType.TAIL>);
+    getNodeAt(beats: number, usePrev: boolean = false): EventStartNode<VT> {
+        let node = this.jump?.getNodeAt(beats) as (EventStartNode<VT> | EventNodeLike<NodeType.TAIL, VT>)
+                || this.head.next as (EventStartNode<VT> | EventNodeLike<NodeType.TAIL, VT>);
         if (node.type === NodeType.TAIL) {
             if (usePrev) {
                 return node.previous.previous.previous;
@@ -662,14 +784,14 @@ class EventNodeSequence {
         }
         return node;
     }
-    getValueAt(beats: number, usePrev: boolean = false) {
+    getValueAt(beats: number, usePrev: boolean = false): VT {
         return this.getNodeAt(beats, usePrev).getValueAt(beats);
     }
-    getIntegral(beats: number, timeCalculator: TimeCalculator) {
-        const node: EventStartNode = this.getNodeAt(beats)
+    getIntegral(this: EventNodeSequence<number>, beats: number, timeCalculator: TimeCalculator) {
+        const node: EventStartNode<number> = this.getNodeAt(beats);
         return node.getIntegral(beats, timeCalculator) + node.cachedIntegral
     }
-    updateNodesIntegralFrom(beats: number, timeCalculator: TimeCalculator) {
+    updateNodesIntegralFrom(this: EventNodeSequence<number>, beats: number, timeCalculator: TimeCalculator) {
         let previousStartNode = this.getNodeAt(beats);
         previousStartNode.cachedIntegral = -previousStartNode.getIntegral(beats, timeCalculator);
         let totalIntegral: number = previousStartNode.cachedIntegral
@@ -681,13 +803,13 @@ class EventNodeSequence {
             previousStartNode = currentStartNode;
         }
     }
-    dump(): EventNodeSequenceDataKPA {
-        const nodes: EventDataRPELike[] = [];
-        let currentNode: EventStartNode = this.head.next;
+    dump(): EventNodeSequenceDataKPA<VT> {
+        const nodes: EventDataRPELike<VT>[] = [];
+        let currentNode: EventStartNode<VT> = this.head.next;
 
         while (currentNode && !(currentNode.next.type === NodeType.TAIL)) {
 
-            const eventData: EventDataRPELike = currentNode.dump();
+            const eventData: EventDataRPELike<VT> = currentNode.dump();
 
             nodes.push(eventData);
 

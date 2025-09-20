@@ -565,7 +565,7 @@ class ZDropdownOptionBox extends Z<"div"> {
         this.$optionList = $("div").addClass("dropdown-option-list");
         const optionList = this.$optionList
         span.append(optionList)
-        this.options = options;
+        this.options = [...options];
         const length = options.length;
         for (let i = 0; i < length; i++) {
             const $element = options[i].getElement(this);
@@ -573,6 +573,7 @@ class ZDropdownOptionBox extends Z<"div"> {
         }
         optionList.onClick((event) => {
             const target = event.target
+            const options = this.options
             if (target instanceof HTMLDivElement) {
                 if (target !== this.value.getElement(this).release()) {
                     let option: BoxOption;
@@ -901,12 +902,30 @@ class ZEasingBox extends Z<"div"> {
 }
 
 class ZRadioBox extends Z<"div"> {
-    callbacks: ((index: number) => void)[];
     $inputs: Z<"input">[];
     selectedIndex: number;
+    _disabledIndexes: number[];
+    get disabledIndexes() {
+        return this._disabledIndexes;
+    }
+    set disabledIndexes(value: number[]) {
+        this._disabledIndexes = value;
+        for (let i = 0; i < this.$inputs.length; i++) {
+            this.$inputs[i].element.disabled = value.indexOf(i) >= 0;
+        }
+        // 如果当前的栏被禁，跳到第一个没被禁的
+        if (this.disabledIndexes.indexOf(this.selectedIndex) >= 0) {
+            for (let i = 0; i < this.$inputs.length; i++) {
+                if (this.disabledIndexes.indexOf(i) < 0) {
+                    this.selectedIndex = i;
+                    this.dispatchEvent(new ZValueChangeEvent())
+                    break;
+                }
+            }
+        }
+    }
     constructor(name:string, options: string[], defaultIndex: number = 0) {
         super("div")
-        this.callbacks = [];
         this.$inputs = [];
         this.addClass("radio-box")
         for (let i = 0; i < options.length; i++) {
@@ -917,8 +936,7 @@ class ZRadioBox extends Z<"div"> {
             $input.on("change",() => {
                 if (this.selectedIndex === i) { return }
                 this.selectedIndex = i
-                this.callbacks.forEach(f => f(i))
-
+                this.dispatchEvent(new ZValueChangeEvent());
             })
             if (i === defaultIndex) {
                 $input.attr("checked", "true")
@@ -927,7 +945,9 @@ class ZRadioBox extends Z<"div"> {
         this.selectedIndex = defaultIndex;
     }
     onChange(callback: (index: number) => void) {
-        this.callbacks.push(callback);
+        this.addEventListener("valueChange", () => {
+            callback(this.selectedIndex);
+        })
         return this;
     }
     /**

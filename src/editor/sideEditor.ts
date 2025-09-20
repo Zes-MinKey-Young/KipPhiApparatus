@@ -543,7 +543,7 @@ class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
     }
 } 
 
-class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
+class EventEditor<VT extends number | string | RGB> extends SideEntityEditor<EventStartNode<VT> | EventEndNode<VT>> {
     $titleContent   = $("span");
     $goPrev         = new ZButton("prev").attr("title", "click to go to previous node,\nlong press to apply last change to previous node");
     $goNext         = new ZButton("next").attr("title", "click to go to next node,\nlong press to apply last change to next node");
@@ -575,6 +575,11 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
 
     $bezierEditor   = new BezierEditor(window.innerWidth * 0.2);
 
+    $interpreteAsSpanText  = $("span").text("Interpreted as:")
+    $interpreteAsOptionBox = new ZDropdownOptionBox(["str", "int", "float"].map(t => new BoxOption(t)));
+
+    $colorNotation   = $("span").addClass("side-editor-info");
+
     $delete: ZButton;
     $radioTabs: ZRadioTabs;
     constructor() {
@@ -590,30 +595,33 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
             .css("width", "100%");
         this.addClass("event-editor")
         this.$goPrev.whenShortPressed((e) => {
-            let target = this.target.previous as EventStartNode | EventEndNode;
+            let target = this.target.previous as EvSoE<VT>;
             if (e.altKey && target.previous.type !== NodeType.HEAD) {
-                target = target.previous as EventStartNode | EventEndNode;
+                target = target.previous as EvSoE<VT>;
             }
             this.target = target;
         });
         this.$goPrev.whenLongPressed(() => {
-            const prev = this.target.previous as EventStartNode | EventEndNode;
+            const prev = this.target.previous as EvSoE<VT>;
             applyOpToNode(prev);
         });
         this.$goNext.whenShortPressed((e) => {
-            let target = this.target.next as EventStartNode | EventEndNode;
+            let target = this.target.next as EvSoE<VT>;
             if (e.altKey && target.next.type !== NodeType.TAIL) {
-                target = target.next as EventStartNode | EventEndNode;
+                target = target.next as EvSoE<VT>;
             }
             this.target = target;
         });
         this.$goNext.whenLongPressed(() => {
-            const next = this.target.next as EventStartNode | EventEndNode;
+            const next = this.target.next as EvSoE<VT>;
             applyOpToNode(next);
         });
-        const applyOpToNode = (node: EventNode) => {
+        const applyOpToNode = (node: EventNode<VT>) => {
             const listOperations = editor.operationList.operations;
             const operation = listOperations[listOperations.length - 1];
+            if (typeof node.value === "string" || Array.isArray(node.value)) {
+                return void notify("You cannot apply last operation to a string node.")
+            }
             if (!operation) {
                 return void notify("There is no operation done in the OperatonList")
             }
@@ -622,6 +630,7 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
                 return;
             }
             const delta = operation.value - operation.originalValue;
+            // @ts-ignore
             editor.operationList.do(new EventNodeValueChangeOperation(node, node.value + delta));
         }
         this.$applyLast.onClick(() => {
@@ -657,16 +666,47 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
             this.$warning,
             $("span").text("time"), this.$time,
             $("span").text("value"), this.$value,
+            this.$colorNotation,
+            this.$interpreteAsSpanText, this.$interpreteAsOptionBox,
             this.$applyLast,
             this.$radioTabs,
             this.$interpolationOuter,
             $("span").text("del"), this.$delete
         )
+        this.$interpreteAsOptionBox.whenValueChange((textContent) => {
+            if (this.target.parentSeq.type !== EventType.text) {
+                return void notify("Illegal action")
+            }
+            const interpreteAs = InterpreteAs[textContent];
+            editor.operationList.do(new TextEventNodeInterpretationChangeOperation(this.target as unknown as EventStartNode<string>, interpreteAs))
+        })
         this.$time.onChange((t) => {
             editor.operationList.do(new EventNodeTimeChangeOperation(this.target, t))
         })
         this.$value.whenValueChange(() => {
-            editor.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()))
+            const originalValue = this.target.value as string | number | RGB;
+            if (typeof originalValue === "number") {
+                // @ts-ignore
+                editor.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()))
+            } else if (typeof originalValue === "string") {
+                // @ts-ignore
+                editor.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getValue()))
+            } else {
+                const primitiveString = this.$value.getValue();
+                let value: RGB
+                if (primitiveString.match(/^#[0-9a-fA-F]{6}$/)) {
+                    value = hex6StrToRgb(primitiveString);
+                } else if (primitiveString.match(/^#[0-9a-fA-F]{3}$/)) {
+                    value = hex3StrToRgb(primitiveString);
+                } else if (primitiveString.match(/\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*/)) {
+                    value = this.$value.getValue().split(",").map(s => parseInt(s.trim())) as RGB;
+                } else {
+                    return void notify("Wrong format")
+                }
+                console.log(primitiveString, value)
+                // @ts-ignore
+                editor.operationList.do(new EventNodeValueChangeOperation(this.target, value))
+            }
         })
         this.$easing.onChange((id) => this.setNormalEasing(id))
         this.$templateEasing.whenValueChange((name) => this.setTemplateEasing(name))
@@ -751,6 +791,18 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
         } else {
             this.$warning.text("");
         }
+        if (eventNode.parentSeq.type !== EventType.text) {
+            this.$interpreteAsSpanText.hide();
+            this.$interpreteAsOptionBox.hide();
+        } else {
+            this.$interpreteAsSpanText.show();
+            this.$interpreteAsOptionBox.show();
+        }
+        if (eventNode.parentSeq.type === EventType.color) {
+            this.$colorNotation.text(`#${rgb2hex(eventNode.value as RGB).toString(16)}`);
+        } else {
+            this.$colorNotation.text("")
+        }
         const isBPM = eventNode instanceof BPMStartNode || eventNode instanceof BPMEndNode
         const isStart = eventNode instanceof EventStartNode
         this.$titleContent.text(`${isBPM ? "BPM" : "Event"}${isStart ? "Start" : "End"}Node (from ${eventNode.parentSeq.id})`);
@@ -775,6 +827,9 @@ class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
             this.$radioTabs.switchTo(3)
             this.$parametric.setValue(eventNode.innerEasing.equation);
         }
+        if (typeof eventNode.value !== "number") {
+            this.$radioTabs.$radioBox.disabledIndexes = [3];
+        }
         
     }
 }
@@ -794,6 +849,7 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     readonly $anchor            = new ZInputBox("0.5, 0.5");
     readonly $group             = new ZDropdownOptionBox([new BoxOption("Default")]);
     readonly $newGroup          = new ZInputBox("");
+    readonly $zOrder            = new ZArrowInputBox();
     readonly $createGroup       = new ZButton("Create");
     readonly $createLine        = new ZButton("Create");
     readonly $attachUI          = new ZCollapseController(true);
@@ -848,6 +904,7 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
             $("span").text("Texture"), this.$texture,
             $("span").text("Anchor"), this.$anchor,
             $("span").text("Group"), this.$group,
+            $("span").text("zOrder"), this.$zOrder,
             $("span").text("Attach UI"), this.$attachUI,
 
             ...arr$element,
@@ -866,6 +923,9 @@ class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
             }
             editor.operationList.do(new JudgeLinePropChangeOperation(this.target, "cover", checked));
         });
+        this.$zOrder.whenValueChange((num) => {
+            editor.operationList.do(new JudgeLinePropChangeOperation(this.target, "zOrder", num));
+        })
         this.$father.whenValueChange((content) => {
             if (!this.target) {
                 notify("The target of this editor has been garbage-collected");

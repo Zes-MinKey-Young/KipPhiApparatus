@@ -20,13 +20,6 @@ const node2string = (node: AnyNN) => {
 }
 
 
-const rgb2hex = (rgb: RGB) => {
-    return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
-}
-
-const hex2rgb = (hex: number): RGB => {
-    return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF]
-}
 
 const notePropTypes = {
     above: "boolean",

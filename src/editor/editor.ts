@@ -44,7 +44,7 @@ class JudgeLinesEditor extends Z<"div"> {
         if (this.editor.judgeLineInfoEditor) {
             this.editor.judgeLineInfoEditor.target = line;
         }
-        this.editor.eventCurveEditors.changeTarget(line)
+        this.editor.eventCurveEditors.changeTargetLine(line)
         const editr = this.editors.get(line);
         editr.addClass("judge-line-editor-selected")
         
@@ -357,7 +357,7 @@ class Editor extends EventTarget {
     operationList?: OperationList;
     chartType: "rpejson" | "kpajson";
     chartData: ChartDataRPE | ChartDataKPA;
-    progressBar: ZProgressBar;
+    readonly $progressBar: ZProgressBar;
     eventCurveEditors: EventCurveEditors
 
     
@@ -365,8 +365,8 @@ class Editor extends EventTarget {
     readonly $preview:          Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("preview"));
     readonly $noteInfo:         Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("noteInfo"));
     readonly $eventSequence:    Z<"div"> = $<"div">(<HTMLDivElement>document.getElementById("eventSequence"));
+    readonly $playButton                 = new ZSwitch("Play", "Pause");
     readonly lineInfoEle: HTMLDivElement = <HTMLDivElement>document.getElementById("lineInfo");
-    readonly playButton: HTMLButtonElement;
     readonly $timeDivisor: ZArrowInputBox;
     timeDivisor: number
     readonly $saveButton    = new ZButton("Save");
@@ -420,14 +420,13 @@ class Editor extends EventTarget {
         } else {
             this.notesEditor.init(notesEditorWidth, this.$preview.clientHeight)
         }
-        this.progressBar = new ZProgressBar(
+        this.$progressBar = new ZProgressBar(
             this.player.audio);
-        this.progressBar.addEventListener("pause", () => this.pause());
-        this.progressBar.addEventListener("change", () => {
+        this.$progressBar.addEventListener("pause", () => this.pause());
+        this.$progressBar.addEventListener("change", () => {
             this.update();
             this.player.render();
         })
-        this.progressBar.appendTo(this.$topbar)
 
         
         this.eventCurveEditors = new EventCurveEditors();
@@ -435,9 +434,8 @@ class Editor extends EventTarget {
         this.eventCurveEditors.init();
 
         
-        this.playButton = <HTMLButtonElement>document.getElementById("playButton")
-        this.playButton.addEventListener("click", (event) => {
-            if (!this.playing) {
+        this.$playButton.whenClickChange((checked) => {
+            if (checked) {
                 this.play();
             } else {
                 this.pause();
@@ -454,7 +452,7 @@ class Editor extends EventTarget {
             const audio = this.player.audio;
             // console.log(event.deltaY)
             changeAudioTime(audio, event.deltaY / 500)
-            this.progressBar.update()
+            this.$progressBar.update()
             this.update()
             this.player.render()
             // event.preventDefault()
@@ -531,6 +529,8 @@ class Editor extends EventTarget {
 
         this.$tipsLabel = generateTipsLabel();
         this.$topbar.append(
+            this.$playButton,
+            this.$progressBar,
             this.$timeDivisor,
             this.$playbackRate,
             this.$offsetInput,
@@ -823,7 +823,7 @@ class Editor extends EventTarget {
         if (this.playing) {
             return;
         }
-        this.playButton.innerHTML = "暂停"
+        this.$playButton.checked = true;
         this.lastMs = performance.now();
         this.framesSinceLastUpdate = 0;
         this.player.play()
@@ -832,6 +832,6 @@ class Editor extends EventTarget {
     pause() {
         this.player.pause()
         this.update()
-        this.playButton.innerHTML = "继续"
+        this.$playButton.checked = false;
     }
 }

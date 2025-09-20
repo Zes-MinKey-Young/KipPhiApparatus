@@ -2,7 +2,7 @@ const ENABLE_PLAYER = true;
 const DRAWS_NOTES = true;
 
 const DEFAULT_ASPECT_RATIO = 3 / 2
-const LINE_WIDTH = 10;
+const LINE_WIDTH = 6.75;
 const LINE_COLOR = "#CCCC77";
 const HIT_EFFECT_SIZE = 200;
 const HALF_HIT = HIT_EFFECT_SIZE / 2
@@ -188,6 +188,9 @@ class Player {
         }
         // console.time("render")
         const context = this.context;
+
+
+        context.save();
         const hitContext = this.hitContext;
         hitContext.clearRect(0, 0, 1350, 900);
         context.drawImage(this.background, -675, -450, 1350, 900);
@@ -199,28 +202,41 @@ class Player {
         context.arc(0, 0, RENDER_SCOPE, 0, 2 * Math.PI);
         context.stroke()
         context.restore()
+
+
         context.save()
 
         context.strokeStyle = "#FFFFFF"
         drawLine(context, -1350, 0, 1350, 0)
         drawLine(context, 0, 900, 0, -900);
+        context.restore();
         
         // console.log("rendering")
+        const lineQueue = [...this.chart.judgeLines].sort((a, b) => (a.zOrder ?? 0) - (b.zOrder ?? 0));
         for (let line of this.chart.orphanLines) {
-            this.renderLine(identity.translate(675, 450).scale(1, -1), line);
-            context.restore()
-            context.save()
+            this.precalculate(identity.translate(675, 450).scale(1, -1), line);
         }
+        for (let line of lineQueue) {
+            if (line.optimized) {
+                continue;
+            }
+            context.save();
+            this.renderLine(line);
+            context.restore();
+        }
+        context.save()
         hitContext.strokeStyle = "#66ccff";
         hitContext.lineWidth = 5;
         drawLine(hitContext, 0, 900, 1350, 0)
-        context.drawImage(this.hitCanvas, -675, -450, 1350, 900)
+        
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.drawImage(this.hitCanvas, 0, 0, 1350, 900)
         context.restore()
-        context.save()
 
 
 
         if (this.showsInfo) {
+            context.save()
             const setTransform = (lineOrNull: JudgeLine | null) => {
                 if (!lineOrNull) {
                     context.setTransform(identity.translate(675, 450));
@@ -266,21 +282,22 @@ class Player {
 
 
             context.restore()
-            context.save()
         }
 
         // this.soundQueue = [];
         
         // console.timeEnd("render")
     }
-    renderLine(matrix: Matrix, judgeLine: JudgeLine) {
-        const context = this.context;
-        const timeCalculator = this.chart.timeCalculator
+    precalculate(matrix: Matrix, judgeLine: JudgeLine) {
+        
         const beats = this.beats;
         // const timeCalculator = this.chart.timeCalculator
         const alpha = judgeLine.getStackedValue("alpha", beats);
         if (judgeLine.nnLists.size === 0 && judgeLine.hnLists.size === 0 && alpha <= 0 && judgeLine.children.size === 0 && !judgeLine.hasAttachUI) {
+            judgeLine.optimized = true;
             return;
+        } else {
+            judgeLine.optimized = false;
         }
         const x = judgeLine.getStackedValue("moveX", beats);
         const y = judgeLine.getStackedValue("moveY", beats);
@@ -289,29 +306,40 @@ class Player {
         judgeLine.moveY = y;
         judgeLine.rotate = theta;
         judgeLine.alpha = alpha;
-
-
-
         const {x: transformedX, y: transformedY} = new Coordinate(x, y).mul(matrix);
+        judgeLine.transformedX = transformedX;
+        judgeLine.transformedY = transformedY;
         const myMatrix = judgeLine.rotatesWithFather ? matrix.translate(x, y).rotate(-theta) : identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
         
-        context.setTransform(myMatrix);
         // Cache a matrix
         judgeLine.renderMatrix = myMatrix;
-
         if (judgeLine.children.size !== 0) {
             for (let line of judgeLine.children) {
-                context.save();
-                this.renderLine(myMatrix, line);
-                context.restore();
+                this.precalculate(myMatrix, line);
             }
         }
+    }
+    renderLine(judgeLine: JudgeLine) {
+        const context = this.context;
+        const timeCalculator = this.chart.timeCalculator;
+        const beats = this.beats;
+        const alpha = judgeLine.alpha;
+        const theta = judgeLine.rotate;
+        const myMatrix = judgeLine.renderMatrix;
+        const transformedX = judgeLine.transformedX;
+        const transformedY = judgeLine.transformedY;
+        context.setTransform(myMatrix);
+
+
+
+
 
 
         // Draw Line
-        const scaleX = 1.0;
-        const scaleY = 1.0;
+        const scaleX = judgeLine.extendedLayer.scaleX.getValueAt(beats);
+        const scaleY = judgeLine.extendedLayer.scaleY.getValueAt(beats);
         const anchor = judgeLine.anchor;
+        console.log(scaleX, scaleY, anchor)
 
         let textureName = judgeLine.texture;
         if (textureName !== "line.png" && !this.textureMapping.get(textureName)) {
@@ -319,8 +347,23 @@ class Player {
         }
         context.scale(1, -1);
 
-        if (textureName === "line.png") {
-            const lineColor: RGB = [200, 200, 120];
+        const hasText = !!judgeLine.extendedLayer.text;
+
+        if (hasText) {
+            const textContent = judgeLine.extendedLayer.text.getValueAt(beats) as string;
+            context.save();
+            context.fillStyle = rgba(...judgeLine.extendedLayer.color?.getValueAt(beats) ?? [255, 255, 255], alpha);
+            context.font = "54px phigros";
+            context.scale(scaleX, scaleY);
+            context.textAlign = "center";
+            context.textBaseline = "middle";
+            const metrics = context.measureText(textContent);
+            const height = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+            const width = metrics.width;
+            context.fillText(textContent, width * (anchor[0] - 0.5), height * (anchor[1] - 0.5));
+            context.restore();
+        } else if (textureName === "line.png") {
+            const lineColor: RGB = judgeLine.extendedLayer.color?.getValueAt(beats) ?? [200, 200, 120];
             context.fillStyle = rgba(...(this.greenLine === judgeLine.id ? ([100, 255, 100] as RGB) : lineColor), alpha / 255)
             const scaledWidth = BASE_LINE_LENGTH * scaleX;
             const scaledHeight = LINE_WIDTH * scaleY;

@@ -3,7 +3,7 @@
  * 全生命周期只会编译一次，想多次就再构造一个
  */
 class RPEChartCompiler {
-    sequenceMap: Map<EventNodeSequence, EventNodeSequence> = new Map();
+    sequenceMap: Map<EventNodeSequence<any>, EventNodeSequence<any>> = new Map();
     interpolationStep: TimeT = [0, 1, 16];
     constructor(public chart: Chart) {}
 
@@ -15,9 +15,10 @@ class RPEChartCompiler {
         const BPMList = chart.timeCalculator.dump();
         const META: MetaData = {
             RPEVersion: 1,
-            background: '',
-            charter: '',
-            composer: '',
+            background: 'illustration.png',
+            charter: chart.charter,
+            composer: chart.composer,
+            illustration: chart.illustrator,
             id: Math.random().toString().slice(2, 10),
             level: chart.level,
             name: chart.name,
@@ -82,27 +83,67 @@ class RPEChartCompiler {
                 alphaEvents: layer.alpha ? this.dumpEventNodeSequence(layer.alpha) : null,
                 speedEvents: layer.speed ? this.dumpEventNodeSequence(layer.speed) : null
             })),
+            extended: {
+                scaleXEvents: judgeLine.extendedLayer.scaleX ? this.dumpEventNodeSequence(judgeLine.extendedLayer.scaleX) : null,
+                scaleYEvents: judgeLine.extendedLayer.scaleY ? this.dumpEventNodeSequence(judgeLine.extendedLayer.scaleY) : null,
+                textEvents: judgeLine.extendedLayer.text ? this.dumpEventNodeSequence(judgeLine.extendedLayer.text) : null,
+                colorEvents: judgeLine.extendedLayer.color ? this.dumpEventNodeSequence(judgeLine.extendedLayer.color) : null
+            },
             father: judgeLine.father?.id ?? -1,
             isCover: judgeLine.cover ? 1 : 0,
             numOfNotes: notes.length,
             anchor: judgeLine.anchor,
             rotateWithFather: judgeLine.rotatesWithFather,
-            isGif: 0
+            isGif: 0,
+            zOrder: judgeLine.zOrder
         };
     }
+    
+    compileEvent<VT>(snode: EventStartNode<VT>, getValue: (node: EventStartNode<VT> | EventEndNode<VT>) => VT): EventDataRPELike<VT> {
+        const endNode = snode.next as EventEndNode<VT>;
+        const isSegmented = snode.easingIsSegmented
+        const easing = isSegmented ? (snode.easing as SegmentedEasing).easing : snode.easing;
+        
+        return {
+            bezier: easing instanceof BezierEasing ? 1 : 0,
+            bezierPoints: easing instanceof BezierEasing ?
+                [easing.cp1.x, easing.cp1.y, easing.cp2.x, easing.cp2.y] : // 修正了这里 cp2.y 的引用
+                [0, 0, 0, 0],
+            easingLeft: isSegmented ? (snode.easing as SegmentedEasing).left : 0.0,
+            easingRight: isSegmented ? (snode.easing as SegmentedEasing).right : 1.0,
+            easingType: easing instanceof NormalEasing ?
+                    easing.rpeId ?? 1 :
+                    null,
+            end: getValue(easing === fixedEasing ? snode : endNode),
+            endTime: endNode.time,
+            linkgroup: 0, // 假设默认值为 0
+            start: getValue(snode),
+            startTime: snode.time
+        }
+    }
 
-    dumpEventNodeSequence(sequence: EventNodeSequence): EventDataRPELike[] {
-        const nodes: EventDataRPELike[] = [];
+    dumpEventNodeSequence<VT>(sequence: EventNodeSequence<VT>): EventDataRPELike<VT>[] {
+        const nodes: EventDataRPELike<VT>[] = [];
         const interpolationStep = this.interpolationStep;
-        sequence = this.substitute(sequence);
+        if (!(sequence.type === EventType.color || sequence.type === EventType.text)) {
+            // @ts-ignore 烦死了烦死了烦死了
+            sequence = this.substitute(sequence);
+        }
         let node = sequence.head.next;
+        // 唯一真史
+        const getValue = (sequence.type === EventType.text
+            ? (node: EventStartNode<string> | EventEndNode<string>) => {
+                const interpretedAs = node instanceof EventStartNode ? node.interpretedAs : node.previous.interpretedAs;
+                return interpretedAs === InterpreteAs.str ? node.value : "%P%" + node.value;
+            }
+            : (node: EventStartNode<number> | EventEndNode<number>) => node.value) as unknown as (node: EventStartNode<VT> | EventEndNode<VT>) => VT;
         while (true) {
             const end = node.next;
             if (end.type === NodeType.TAIL) break;
             if (node.easing instanceof ParametricEquationEasing) {
                 let cur = node.time;
                 const endTime = end.time;
-                let value = node.value;
+                let value = getValue(node);
                 for (; TC.lt(cur, endTime);) {
                     const nextTime = TC.validateIp(TC.add(cur, interpolationStep));
                     const nextValue = node.getValueAt(TC.toBeats(nextTime))
@@ -136,7 +177,7 @@ class RPEChartCompiler {
                 })
                 
             } else {
-                nodes.push(node.dump());
+                nodes.push(this.compileEvent(node, getValue));
             }
             node = end.next;
         }
@@ -159,6 +200,7 @@ class RPEChartCompiler {
             // 每次从lists中第一个list pop一个data加入到结果，然后冒泡调整这个list的位置
             while (lists[0].length > 0) {
                 const list = lists[0];
+                // 只需要pop就可以了，pop复杂度O(1)，这是倒序的原因
                 const node = list.pop();
                 ret.push(node);
                 let i = 0;
@@ -178,7 +220,7 @@ class RPEChartCompiler {
     /**
      * 倒序转换为数组
      * @param nnList 
-     * @returns 
+     * @returns 一个按照时间降序排列的数组
      */
     nnListToArray(nnList: NNList) {
         const notes: NoteDataRPE[] = [];
@@ -218,8 +260,8 @@ class RPEChartCompiler {
                 const quoted: EventNodeSequence = this.substitute(currentNode.easing.eventNodeSequence);
                 const startTime: TimeT = currentNode.time;
                 const endTime: TimeT = endNode.time;
-                const start: number = currentNode.value;
-                const end: number = endNode.value;
+                const start = currentNode.value;
+                const end = endNode.value;
                 const delta = end - start;
                 const originalStart: number = quoted.head.next.value;
                 const originalDelta = quoted.tail.previous.value - quoted.head.next.value 

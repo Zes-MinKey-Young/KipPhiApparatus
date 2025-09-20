@@ -7,7 +7,11 @@ enum EventType {
     alpha,
     speed,
     easing,
-    bpm
+    bpm,
+    scaleX,
+    scaleY,
+    text,
+    color
 }
 enum NoteType {
     tap=1,
@@ -26,6 +30,12 @@ interface EventLayer {
     speed?: EventNodeSequence;
 }
 
+interface ExtendedLayer {
+    scaleX?: EventNodeSequence;
+    scaleY?: EventNodeSequence;
+    text?: EventNodeSequence<string>;
+    color?: EventNodeSequence<RGB>;
+}
 
 
 type Plain<T> = {[k: string]: T}
@@ -81,7 +91,7 @@ class Chart {
     offset: number = 0;
     
     templateEasingLib = new TemplateEasingLib;
-    sequenceMap = new Map<string, EventNodeSequence>();
+    sequenceMap = new Map<string, EventNodeSequence<any>>();
 
     effectiveBeats: number;
     nnnList: NNNList;
@@ -185,7 +195,7 @@ class Chart {
         const length = data.eventNodeSequences.length
         for (let i = 0; i < length; i++) {
             const seqData = sequences[i];
-            const sequence = EventNodeSequence.fromRPEJSON(seqData.type, seqData.events, chart, seqData.endValue);
+            const sequence = EventNodeSequence.fromRPEJSON<typeof seqData.type, ValueTypeOfEventType<typeof seqData.type>>(seqData.type, seqData.events, chart, seqData.endValue);
             sequence.id = seqData.id;
             chart.sequenceMap.set(sequence.id, sequence);
         }
@@ -227,14 +237,14 @@ class Chart {
         }
     }
     dumpKPA(): Required<ChartDataKPA> {
-        const eventNodeSequences = new Set<EventNodeSequence>();
+        const eventNodeSequenceCollector = new Set<EventNodeSequence>();
         const orphanLines = [];
         for (let line of this.orphanLines) {
-            orphanLines.push(line.dumpKPA(eventNodeSequences, this.judgeLineGroups));
+            orphanLines.push(line.dumpKPA(eventNodeSequenceCollector, this.judgeLineGroups));
         }
-        const envEasings = this.templateEasingLib.dump(eventNodeSequences);
-        const eventNodeSequenceData: EventNodeSequenceDataKPA[] = [];
-        for (let sequence of eventNodeSequences) {
+        const envEasings = this.templateEasingLib.dump(eventNodeSequenceCollector);
+        const eventNodeSequenceData: EventNodeSequenceDataKPA<any>[] = [];
+        for (let sequence of eventNodeSequenceCollector) {
             eventNodeSequenceData.push(sequence.dump());
         }
         return {
@@ -245,7 +255,10 @@ class Chart {
             eventNodeSequences: eventNodeSequenceData,
             info: {
                 level: this.level,
-                name: this.name
+                name: this.name,
+                charter: this.charter,
+                illustrator: this.illustrator,
+                composer: this.composer
             },
             ui: {
                 combo: this.comboAttach?.id,
@@ -266,7 +279,7 @@ class Chart {
     createNNNode(time: TimeT) {
      return new NNNode(time)
     }
-    createEventNodeSequence(type: EventType, name: string) {
+    createEventNodeSequence<T extends EventType>(type: T, name: string) {
         if (this.sequenceMap.has(name)) {
             throw new Error(`The name ${name} is occupied.`)
         }

@@ -1,5 +1,7 @@
 
 
+type ValueTypeOfEventType<T extends EventType> = [number, number, number, number, number, number, number, number, number, string, RGB][T]
+
 /**
  * 奇谱发生器使用中心来表示一个NNList的y值偏移范围，这个函数根据yOffset算出对应中心值
  * @param yOffset 
@@ -15,6 +17,7 @@ class JudgeLine {
     hnLists = new Map<string, HNList>();
     nnLists = new Map<string, NNList>();
     eventLayers: EventLayer[] = [];
+    extendedLayer: ExtendedLayer = {};
     // notePosition: Float64Array;
     // noteSpeeds: NoteSpeeds;
     father: JudgeLine;
@@ -24,6 +27,11 @@ class JudgeLine {
     moveY: number;
     rotate: number;
     alpha: number;
+    transformedX: number;
+    transformedY: number;
+    optimized: boolean = false;
+
+    zOrder: number = 0;
 
     anchor: [number, number] = [0.5, 0.5];
 
@@ -54,6 +62,8 @@ class JudgeLine {
         line.cover = Boolean(data.isCover);
         line.rotatesWithFather = data.rotateWithFather;
         line.anchor = data.anchor ?? [0.5, 0.5];
+        line.texture = data.Texture || "line.png";
+        line.zOrder = data.zOrder ?? 0;
 
         // Process UI
         if (data.attachUI) {
@@ -114,6 +124,14 @@ class JudgeLine {
                 return sequence;
             }
         }
+        const createExtendedSequence = <T extends EventType>(type: T, events: EventDataRPELike<ValueTypeOfEventType<T>>[]) =>  {
+            if (events) {
+                const sequence = EventNodeSequence.fromRPEJSON(type, events, chart);
+                sequence.id = `#${id}.ex.${EventType[type]}`;
+                chart.sequenceMap.set(sequence.id, sequence);
+                return sequence;
+            }
+        }
         for (let index = 0; index < length; index++) {
             const layerData = eventLayers[index];
             if (!layerData) {
@@ -128,6 +146,24 @@ class JudgeLine {
             };
             line.eventLayers[index] = layer;
         }
+        if (data.extended) {
+            if (data.extended.scaleXEvents) {
+                line.extendedLayer.scaleX = createExtendedSequence(EventType.scaleX, data.extended.scaleXEvents);
+            } else {
+                line.extendedLayer.scaleX = chart.createEventNodeSequence(EventType.scaleX, `#${id}.ex.scaleX`);
+            }
+            if (data.extended.scaleYEvents) {
+                line.extendedLayer.scaleY = createExtendedSequence(EventType.scaleY, data.extended.scaleYEvents);
+            } else {
+                line.extendedLayer.scaleY = chart.createEventNodeSequence(EventType.scaleY, `#${id}.ex.scaleY`);
+            }
+            if (data.extended.textEvents) {
+                line.extendedLayer.text = createExtendedSequence(EventType.text, data.extended.textEvents);
+            }
+            if (data.extended.colorEvents) {
+                line.extendedLayer.color = createExtendedSequence(EventType.color, data.extended.colorEvents);
+            }
+        }
         // line.updateNoteSpeeds();
         // line.computeNotePositionY(timeCalculator);
         return line;
@@ -140,6 +176,7 @@ class JudgeLine {
         line.anchor = data.anchor ?? [0.5, 0.5];
         line.texture = data.Texture || "line.png";
         line.cover = data.cover ?? true;
+        line.zOrder = data.zOrder ?? 0;
 
 
         chart.judgeLineGroups[data.group].add(line);
@@ -171,6 +208,21 @@ class JudgeLine {
             }
             line.eventLayers.push(eventLayer);
         }
+        line.extendedLayer.scaleX = data.extended?.scaleXEvents
+                                ? chart.sequenceMap.get(data.extended.scaleXEvents)
+                                : chart.createEventNodeSequence(EventType.scaleX, `#${line.id}.ex.scaleX`);
+        line.extendedLayer.scaleY = data.extended?.scaleYEvents
+                                ? chart.sequenceMap.get(data.extended.scaleYEvents)
+                                : chart.createEventNodeSequence(EventType.scaleY, `#${line.id}.ex.scaleY`);
+        if (data.extended) {
+            if (data.extended.textEvents) {
+                line.extendedLayer.text = chart.sequenceMap.get(data.extended.textEvents);
+            }
+            if (data.extended.colorEvents) {
+                line.extendedLayer.color = chart.sequenceMap.get(data.extended.colorEvents);
+            }
+        }
+        
         chart.judgeLines.push(line);
         return line;
     }
@@ -217,6 +269,13 @@ class JudgeLine {
         for (const list of createdLists) {
             NoteNode.connect(list.currentPoint, list.tail);
             list.initJump();
+        }
+    }
+    getLayer(index: "0" | "1" | "2" | "3" | "ex") {
+        if (index === "ex") {
+            return this.extendedLayer;
+        } else {
+            return this.eventLayers[index];
         }
     }
     updateSpeedIntegralFrom(beats: number, timeCalculator: TimeCalculator) {
@@ -433,7 +492,7 @@ class JudgeLine {
      * @param eventNodeSequences To Collect the sequences used in this line
      * @returns 
      */
-    dumpKPA(eventNodeSequences: Set<EventNodeSequence>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA {
+    dumpKPA(eventNodeSequences: Set<EventNodeSequence<any>>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA {
         const children: JudgeLineDataKPA[] = [];
         for (let line of this.children) {
             children.push(line.dumpKPA(eventNodeSequences, judgeLineGroups))
@@ -459,6 +518,21 @@ class JudgeLine {
         for (let [id, list] of this.nnLists) {
             nnListsData[id] = list.dumpKPA();
         }
+        const extended = {
+            scaleXEvents: this.extendedLayer.scaleX?.id,
+            scaleYEvents: this.extendedLayer.scaleY?.id,
+            textEvents: this.extendedLayer.text?.id,
+            colorEvents: this.extendedLayer.color?.id,
+        };
+        eventNodeSequences.add(this.extendedLayer.scaleX)
+        eventNodeSequences.add(this.extendedLayer.scaleY)
+        
+        if (this.extendedLayer.color) {
+            eventNodeSequences.add(this.extendedLayer.color);
+        }
+        if (this.extendedLayer.text) {
+            eventNodeSequences.add(this.extendedLayer.text);
+        }
         return {
             group: judgeLineGroups.indexOf(this.group),
             id: this.id,
@@ -470,7 +544,10 @@ class JudgeLine {
             eventLayers: eventLayers,
             hnLists: hnListsData,
             nnLists: nnListsData,
-            cover: this.cover
+            cover: this.cover,
+            extended: extended,
+            zOrder: this.zOrder === 0 ? undefined : this.zOrder
+
         }
     }
 

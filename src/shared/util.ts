@@ -241,3 +241,15 @@ const formatTime = (minutes: number, seconds: number) => {
     return numNounWithoutZero(hrs, "hr") + " " + numNounWithoutZero(minutes, "min") + " " + numNounWithoutZero(seconds, "sec");
 
 }
+
+
+const rgb2hex = (rgb: RGB) => {
+    return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
+}
+
+const hex2rgb = (hex: number): RGB => {
+    return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF]
+}
+
+const hex6StrToRgb = (hex: string): RGB => hex2rgb(parseInt(hex.substring(1), 16))
+const hex3StrToRgb = (hex: string): RGB => [parseInt(hex.charAt(1) + hex.charAt(1), 16), parseInt(hex.charAt(2) + hex.charAt(2), 16), parseInt(hex.charAt(3) + hex.charAt(3), 16)]

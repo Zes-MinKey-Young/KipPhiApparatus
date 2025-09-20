@@ -119,11 +119,14 @@ interface EventDataRPELike<T = number> {
     startTime: TimeT;
 }
 
+
+
 // 多年才想起来，根本没做参数方程缓动的相关适配
 
 interface EventDataKPA<T = number> extends EventDataRPELike<T> {
     /** 若设为真，则easingType当做JS表达式解读 */
     isParametric?: boolean;
+    interpreteAs?: InterpreteAs;
 }
 
 /**
@@ -190,6 +193,7 @@ interface JudgeLineDataRPE {
         scaleXEvents: EventDataRPELike[];
         scaleYEvents: EventDataRPELike[];
         textEvents: EventDataRPELike<string>[];
+        gifEvents: EventDataRPELike<number>[];
     };
     /** 父线线号，没有父线则为-1 */
     father: number;
@@ -281,6 +285,12 @@ interface JudgeLineDataKPA {
     rotatesWithFather: boolean;
 
     anchor: [number, number];
+    extended?: {
+        scaleXEvents: string;
+        scaleYEvents: string;
+        textEvents?: string;
+        colorEvents?: string;
+    }
     // extended: {inclineEvents: EventDataRPE[]};
     // father: number;
     // children: number[];
@@ -290,16 +300,16 @@ interface JudgeLineDataKPA {
     // sizeControl: any[];
     // skewControl: any[];
     // yControl: any[];
-    // zOrder: number;
+    zOrder: number;
 }
 
 
 
-interface EventNodeSequenceDataKPA {
-    events: EventDataRPELike[];
+interface EventNodeSequenceDataKPA<VT> {
+    events: EventDataKPA<VT>[];
     id: string;
     type: EventType;
-    endValue: number;
+    endValue: VT;
 }
 
 interface ChartDataKPA {
@@ -323,7 +333,7 @@ interface ChartDataKPA {
         level: number;
     }
     envEasings: CustomEasingData[]; // New!
-    eventNodeSequences: EventNodeSequenceDataKPA[];
+    eventNodeSequences: EventNodeSequenceDataKPA<any>[];
     orphanLines: JudgeLineDataKPA[];
     bpmList: BPMSegmentData[];
     judgeLineGroups: string[];

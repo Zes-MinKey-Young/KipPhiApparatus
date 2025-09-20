@@ -510,11 +510,11 @@ class NoteTreeChangeOperation extends NoteAddOperation {
 
 class EventNodePairRemoveOperation extends Operation {
     updatesEditor = true;
-    endNode: EventEndNode;
-    startNode: EventStartNode;
-    sequence: EventNodeSequence;
-    originalPrev: EventStartNode;
-    constructor(node: EventStartNode) {
+    endNode: EventEndNode<any>;
+    startNode: EventStartNode<any>;
+    sequence: EventNodeSequence<any>;
+    originalPrev: EventStartNode<any>;
+    constructor(node: EventStartNode<any>) {
         super();
         if (node.previous === null) {
             this.ineffective = true;
@@ -541,14 +541,14 @@ class EventNodePairRemoveOperation extends Operation {
  * 如果这个节点对的时刻与节点对的时刻相同，那么该节点对将不会被插入。
  * 而是把原来开始节点的值修改。
  */
-class EventNodePairInsertOperation extends Operation {
+class EventNodePairInsertOperation<VT> extends Operation {
     updatesEditor = true
-    node: EventStartNode;
-    tarPrev: EventStartNode;
-    originalSequence: EventNodeSequence;
+    node: EventStartNode<VT>;
+    tarPrev: EventStartNode<VT>;
+    originalSequence: EventNodeSequence<VT>;
     overlapped: boolean;
-    originalValue: number;
-    value: number
+    originalValue: VT;
+    value: VT
     /**
      * 
      * @param node the node to insert
@@ -556,7 +556,7 @@ class EventNodePairInsertOperation extends Operation {
      * If the targetPrevious's time is the same as node's time, the node will not be inserted,
      * and the targetPrevious' value will be replaced with the node's value.
      */
-    constructor(node: EventStartNode, targetPrevious: EventStartNode) {
+    constructor(node: EventStartNode<VT>, targetPrevious: EventStartNode<VT>) {
         super()
         this.node = node;
         this.tarPrev = targetPrevious
@@ -606,10 +606,10 @@ class EventNodePairAddOperation extends Operation {
  * 节点对需要有序的，且不能有重叠
 
  */
-class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperation[]> {
+class MultiNodeAddOperation<VT> extends ComplexOperation<EventNodePairInsertOperation<VT>[]> {
     updatesEditor = true
-    nodes: EventStartNode[];
-    constructor(nodes: EventStartNode[], seq: EventNodeSequence) {
+    nodes: EventStartNode<VT>[];
+    constructor(nodes: EventStartNode<VT>[], seq: EventNodeSequence<VT>) {
         let prev = seq.getNodeAt(TimeCalculator.toBeats(nodes[0].time));
         super(...nodes.map(node => {
             const op = new EventNodePairInsertOperation(node, prev);
@@ -622,17 +622,17 @@ class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperatio
 
 class MultiNodeDeleteOperation extends ComplexOperation<LazyOperation<typeof EventNodePairRemoveOperation>[]> {
     updatesEditor = true;
-    constructor(nodes: EventStartNode[]) {
+    constructor(nodes: EventStartNode<any>[]) {
         super(...nodes.map(node => EventNodePairRemoveOperation.lazy(node)));
     }
 }
 
-class EventNodeValueChangeOperation extends Operation {
+class EventNodeValueChangeOperation<VT> extends Operation {
     updatesEditor = true
-    node: EventNode
-    value: number;
-    originalValue: number
-    constructor(node: EventNode, val: number) {
+    node: EventNode<VT>
+    value: VT;
+    originalValue: VT
+    constructor(node: EventNode<VT>, val: VT) {
         super()
         this.node = node
         this.value = val;
@@ -644,7 +644,7 @@ class EventNodeValueChangeOperation extends Operation {
     undo() {
         this.node.value = this.originalValue
     }
-    rewrite(operation: EventNodeValueChangeOperation): boolean {
+    rewrite(operation: EventNodeValueChangeOperation<VT>): boolean {
         if (operation.node === this.node) {
             this.value = operation.value;
             this.node.value = operation.value
@@ -661,13 +661,13 @@ class EventNodeTimeChangeOperation extends Operation {
      * 这里两个node不是面对面，而是背靠背
      * i. e. EndNode -> StartNode
      */
-    startNode: EventStartNode;
-    endNode: EventEndNode;
+    startNode: EventStartNode<any>;
+    endNode: EventEndNode<any>;
     value: TimeT;
     originalValue: TimeT;
-    originalPrevious: EventStartNode;
-    newPrevious: EventStartNode;
-    constructor(node: EventStartNode | EventEndNode, val: TimeT) {
+    originalPrevious: EventStartNode<any>;
+    newPrevious: EventStartNode<any>;
+    constructor(node: EventStartNode<any> | EventEndNode<any>, val: TimeT) {
         super()
         if (node.previous.type === NodeType.HEAD) {
             this.ineffective = true;
@@ -711,10 +711,10 @@ class EventNodeTimeChangeOperation extends Operation {
 
 class EventNodeInnerEasingChangeOperation extends Operation {
     updatesEditor = true
-    startNode: EventStartNode;
+    startNode: EventStartNode<any>;
     value: Easing;
     originalValue: Easing
-    constructor(node: EventStartNode | EventEndNode, val: Easing) {
+    constructor(node: EventStartNode<any> | EventEndNode<any>, val: Easing) {
         super();
         let _;
         [this.startNode, _] = EventNode.getStartEnd(node)
@@ -731,10 +731,10 @@ class EventNodeInnerEasingChangeOperation extends Operation {
 
 class EventNodeEasingChangeOperation extends Operation {
     updatesEditor = true
-    startNode: EventStartNode;
+    startNode: EventStartNode<any>;
     value: Easing;
     originalValue: Easing
-    constructor(node: EventStartNode | EventEndNode, val: Easing) {
+    constructor(node: EventStartNode<any> | EventEndNode<any>, val: Easing) {
         super();
         let _;
         [this.startNode, _] = EventNode.getStartEnd(node)
@@ -749,12 +749,25 @@ class EventNodeEasingChangeOperation extends Operation {
     }
 }
 
+class TextEventNodeInterpretationChangeOperation extends Operation {
+    originalValue: InterpreteAs;
+    constructor(public node: EventStartNode<string>, public value: InterpreteAs) {
+        super();
+    }
+    do() {
+        this.node.interpretedAs = this.value
+    }
+    undo() {
+        this.node.interpretedAs = this.originalValue
+    }
+}
+
 
 
 // 这个地方得懒一下，不然每亩，导致撤回操作时只能撤回第一个插值节点。
-class EventInterpolationOperation extends ComplexOperation<LazyOperation<typeof EventNodePairInsertOperation>[]> {
+class EventInterpolationOperation<VT> extends ComplexOperation<LazyOperation<typeof EventNodePairInsertOperation>[]> {
     updatesEditor = true;
-    constructor(public eventStartNode: EventStartNode, public step: TimeT) {
+    constructor(public eventStartNode: EventStartNode<VT>, public step: TimeT) {
         if (eventStartNode.next.type === NodeType.TAIL) {
             throw new Error("Cannot interpolate on a tailing StartNode");
         } 
@@ -807,7 +820,7 @@ class BPMNodeInsertOperation extends Operation {
 }
 */
 
-class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation, EventNodeValueChangeOperation]> {
+class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation, EventNodeValueChangeOperation<number>]> {
     updatesEditor = true;
     constructor(nodes: EventStartNode[], easing: TemplateEasing) {
         const len = nodes.length;
@@ -916,7 +929,7 @@ class JudgeLineRenameOperation extends Operation {
     }
 }
 
-type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture" | "cover";
+type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture" | "cover" | "zOrder";
 
 class JudgeLinePropChangeOperation<T extends JudgeLinePropName> extends Operation {
     updatesEditor = true;
@@ -1010,6 +1023,28 @@ class JudgeLineENSChangeOperation extends Operation {
     undo() {
         this.judgeLine.eventLayers[this.layerId][this.typeStr] = this.originalValue;
     }
+}
+
+
+type ENSOfTypeName<T extends ExtendedEventTypeName> = {
+    "scaleX": EventNodeSequence<number>,
+    "scaleY": EventNodeSequence<number>
+    "text": EventNodeSequence<string>,
+    "color": EventNodeSequence<RGB> 
+}[T]
+class JudgeLineExtendENSChangeOperation<T extends ExtendedEventTypeName> extends Operation {
+    originalValue: ENSOfTypeName<T>;
+    constructor(public judgeLine: JudgeLine, public typeStr: T, public value: ENSOfTypeName<T> | null) {
+        super();
+        this.originalValue = judgeLine.extendedLayer[typeStr satisfies keyof ExtendedLayer] as ENSOfTypeName<T>;
+    }
+    do() {
+        this.judgeLine.extendedLayer[this.typeStr] = this.value
+    }
+    undo() {
+        this.judgeLine.extendedLayer[this.typeStr] = this.originalValue
+    }
+
 }
 
 class EventNodeSequenceRenameOperation extends Operation { 
