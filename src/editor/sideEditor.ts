@@ -573,6 +573,8 @@ class EventEditor<VT extends number | string | RGB> extends SideEntityEditor<Eve
     $interpolationStep = new ZFractionInput().setValue([0, 1, 16]);
     $interpolateBtn = new ZButton("Interpolate");
 
+    $substitute     = new ZButton("Substitute").addClass("progressive");
+
     $bezierEditor   = new BezierEditor(window.innerWidth * 0.2);
 
     $interpreteAsSpanText  = $("span").text("Interpreted as:")
@@ -653,10 +655,16 @@ class EventEditor<VT extends number | string | RGB> extends SideEntityEditor<Eve
             this.$interpolateBtn,
             $("span").text("with Step: ").css("alignSelf", "center"),
             this.$interpolationStep
+        );
+        this.$templateOuter.append(
+            this.$templateEasing, $("br"),
+            this.$templateLeft,
+            this.$templateRight, $("br"),
+            this.$substitute
         )
         this.$radioTabs = new ZRadioTabs("easing-type", {
             "Normal": this.$normalOuter,
-            "Template": this.$templateEasing,
+            "Template": this.$templateOuter,
             "Bezier": this.$bezierEditor,
             "Parametric": this.$parametricOuter
         });
@@ -673,6 +681,12 @@ class EventEditor<VT extends number | string | RGB> extends SideEntityEditor<Eve
             this.$interpolationOuter,
             $("span").text("del"), this.$delete
         )
+        this.$substitute.onClick(() => {
+            if (this.target.parentSeq.type === EventType.text || this.target.parentSeq.type === EventType.color) {
+                return void notify("Can't substitute text or color event node sequence.")
+            }
+            editor.operationList.do(new EventSubstituteOperation(this.target));
+        })
         this.$interpreteAsOptionBox.whenValueChange((textContent) => {
             if (this.target.parentSeq.type !== EventType.text) {
                 return void notify("Illegal action")
@@ -828,7 +842,7 @@ class EventEditor<VT extends number | string | RGB> extends SideEntityEditor<Eve
             this.$parametric.setValue(eventNode.innerEasing.equation);
         }
         if (typeof eventNode.value !== "number") {
-            this.$radioTabs.$radioBox.disabledIndexes = [3];
+            this.$radioTabs.$radioBox.disabledIndexes = [1, 3];
         }
         
     }

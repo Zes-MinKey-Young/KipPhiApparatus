@@ -610,7 +610,7 @@ class EventNodeSequence<VT = number> { // 泛型的传染性这一块
         let listLength = length;
         let lastEnd: EventEndNode<VT> | EventNodeLike<NodeType.HEAD, VT> = seq.head;
         // 如果第一个事件不从0时间开始，那么添加一对面对面节点来垫背
-        if (TC.ne(data[0].startTime, [0, 0, 1])) {
+        if (data[0] && TC.ne(data[0].startTime, [0, 0, 1])) {
             const value = data[0].start
             const start = new EventStartNode<VT>([0, 0, 1], value as VT);
             const end = new EventEndNode<VT>(data[0].startTime, value as VT);

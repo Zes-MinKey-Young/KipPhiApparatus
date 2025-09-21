@@ -154,3 +154,7 @@ class KPA {
         document.body.appendChild(script);
     }
 }
+
+window.addEventListener("error", (e) => {
+    notify(e.error.message);
+})

@@ -256,36 +256,94 @@ class RPEChartCompiler {
                 break;
             }
             const endNode = currentNode.next;
-            if (currentNode.easing instanceof TemplateEasing) {
-                const quoted: EventNodeSequence = this.substitute(currentNode.easing.eventNodeSequence);
-                const startTime: TimeT = currentNode.time;
-                const endTime: TimeT = endNode.time;
-                const start = currentNode.value;
-                const end = endNode.value;
-                const delta = end - start;
-                const originalStart: number = quoted.head.next.value;
-                const originalDelta = quoted.tail.previous.value - quoted.head.next.value 
-                const originalTimeSpan: TimeT = TimeCalculator.sub(quoted.tail.previous.time, quoted.head.next.time)
-                const timeSpan: TimeT = TimeCalculator.sub(endTime, startTime);
-                const ratio: [number, number] = TimeCalculator.div(timeSpan, originalTimeSpan)
+            if (currentNode.innerEasing instanceof TemplateEasing) {
+                
+                const srcSeq = this.substitute(currentNode.innerEasing.eventNodeSequence);
+                const easing = currentNode.easing;
+                const isSegmented = easingIsSegmented(easing);
+                const startValue = currentNode.value;
+                const endValue = currentNode.next.value;
+                const delta = endValue - startValue;
+                const startTime = currentNode.time;
+                const timeDelta = TC.sub(currentNode.next.time, startTime);
+
+
+                let srcStart: number, srcEnd: number, leftDividedNode: EventStartNode, rightDividedNode: EventStartNode,
+                    srcStartTime: TimeT, srcTimeDelta: TimeT, toStopAt: EventStartNode;
+                if (isSegmented) {
+                    const totalDuration = TC.sub(srcSeq.tail.previous.time, srcSeq.head.next.time);
+                    srcStart = srcSeq.getValueAt(easing.left * srcSeq.effectiveBeats)
+                    srcEnd = srcSeq.getValueAt(easing.right * srcSeq.effectiveBeats, true);
+                    leftDividedNode = srcSeq.getNodeAt(easing.left * srcSeq.effectiveBeats);
+                    rightDividedNode = srcSeq.getNodeAt(easing.right * srcSeq.effectiveBeats, true);
+                    toStopAt = rightDividedNode.next.next;
+                    srcStartTime = TC.mul(totalDuration, numberToRatio(easing.left));
+                    const srcEndTime = TC.mul(totalDuration, numberToRatio(easing.right));
+                    TC.validateIp(srcStartTime);
+                    TC.validateIp(srcEndTime);
+                    srcTimeDelta = TC.sub(srcEndTime, srcStartTime);
+                    TC.validateIp(srcTimeDelta);
+                } else {
+                    srcStart = srcSeq.head.next.value;
+                    srcEnd = srcSeq.tail.previous.value;
+                    leftDividedNode = srcSeq.head.next;
+                    rightDividedNode = srcSeq.tail.previous;
+                    toStopAt = rightDividedNode;
+                    srcStartTime = srcSeq.head.next.time;
+                    srcTimeDelta = TC.sub(srcSeq.tail.previous.time, srcStartTime);
+                }
+                
+                const srcDelta = srcEnd - srcStart;
+                const ratio = TC.div(timeDelta, srcTimeDelta)
+                
                 const convert: (v: number) => number
-                    = (value: number) => start + (value - originalStart) * delta / originalDelta;
+                    = (value: number) => startValue + (value - srcStart) * delta / srcDelta;
                 // 我恨TS没有运算符重载
                 const convertTime: (t: TimeT) => TimeT
-                    = (time: TimeT) => TC.validateIp(TC.add(startTime, TC.mul(TC.sub(time, quoted.head.next.time), ratio)));
-                let node = quoted.head.next;
-                while (true) {
-                    const end = node.next;
-                    if (end.type === NodeType.TAIL) {
-                        break;
+                    = (time: TimeT) => TC.validateIp(TC.add(startTime, TC.mul(TC.sub(time, srcStartTime), ratio)));
+
+                const first = currentNode.clone();
+                EventNode.connect(currentPos, first)
+                // 处理第一个节点的截段
+                if (isSegmented) {
+                    const left = easing.left * srcSeq.effectiveBeats
+                    if (TC.toBeats(leftDividedNode.time) - left > 1e-6) {
+                        // 断言：这里left不会大于有效拍数
+                        const newLeft = left / (TC.toBeats((leftDividedNode.next as EventEndNode).time) - TC.toBeats(leftDividedNode.time))
+                        first.easing = new SegmentedEasing(leftDividedNode.easing, newLeft, 1.0);
+                    } else {
+                        first.easing = leftDividedNode.easing;
                     }
-                    const newNode = new EventStartNode(convertTime(node.time), convert(node.value));
-                    const newEndNode = new EventEndNode(convertTime(end.time), convert(end.value));
-                    EventNode.connect(currentPos, newNode);
-                    EventNode.connect(newNode, newEndNode);
-                    currentPos = newEndNode;
-                    node = end.next;
+                } else {
+                    first.easing = srcSeq.head.next.easing;
                 }
+                let prev = first
+                // 这里在到toStopAt之前一直都是非尾的
+                for (let n: EventEndNode<number> = leftDividedNode.next as EventEndNode<number>; n.next !== toStopAt; n = n.next.next) {
+                    const endNode = n;
+                    const startNode = n.next;
+                    const newEnd = new EventEndNode(convertTime(endNode.time), convert(endNode.value));
+                    const newStart = new EventStartNode(convertTime(startNode.time), convert(startNode.value));
+                    newStart.easing = startNode.easing;
+                    EventNode.connect(prev, newEnd)
+                    EventNode.connect(newEnd, newStart);
+                    prev = newStart;
+                }
+                // 处理最后一个节点的截段
+                if (isSegmented) {
+                    const right = easing.right * srcSeq.effectiveBeats
+                    if (TC.toBeats((rightDividedNode.next as EventEndNode).time) - right > 1e-6) {
+                        // 断言：这里right不会大于有效拍数
+                        const newRight = right / (TC.toBeats((rightDividedNode.next as EventEndNode).time) - TC.toBeats(rightDividedNode.time))
+                        // 这时候prev是最后一个subst的node
+                        prev.easing = new SegmentedEasing(rightDividedNode.easing, 0.0, newRight)
+                    }
+
+                }
+                const endNode = currentNode.next.clone();
+                EventNode.connect(prev, endNode);
+                currentPos = endNode;
+                endNode.value =  isSegmented ? endNode.value : convert((srcSeq.tail.previous.previous as EventEndNode).value);
             } else {
                 const newStartNode = currentNode.clone();
                 const newEndNode = endNode.clone();

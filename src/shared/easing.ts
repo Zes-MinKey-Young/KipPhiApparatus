@@ -123,7 +123,9 @@ abstract class Easing {
         const rightValue =  this.getValue(easingRight);
         const timeDelta = easingRight - easingLeft;
         const delta = rightValue - leftValue;
-        console.log("lr", easingLeft, leftValue, easingRight, rightValue);
+        if (delta === 0) {
+            throw new Error('Easing delta cannot be zero.');
+        }
         return (t: number) => (this.getValue(easingLeft + timeDelta * t) - leftValue) / delta;
     }
     drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number , endY: number): void {
@@ -262,8 +264,11 @@ class TemplateEasing extends Easing {
     }
     getValue(t: number) {
         const seq = this.eventNodeSequence;
-        let delta = this.valueDelta;
-        const frac = seq.getValueAt(t * seq.effectiveBeats) - this.headValue
+        const delta = this.valueDelta;
+        if (delta === 0) {
+            throw new Error('Easing delta cannot be zero.');
+        }
+        const frac = seq.getValueAt(t * seq.effectiveBeats, true) - this.headValue
         return delta === 0 ? frac : frac / delta;
     }
     get valueDelta(): number {

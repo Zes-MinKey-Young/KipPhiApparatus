@@ -253,3 +253,8 @@ const hex2rgb = (hex: number): RGB => {
 
 const hex6StrToRgb = (hex: string): RGB => hex2rgb(parseInt(hex.substring(1), 16))
 const hex3StrToRgb = (hex: string): RGB => [parseInt(hex.charAt(1) + hex.charAt(1), 16), parseInt(hex.charAt(2) + hex.charAt(2), 16), parseInt(hex.charAt(3) + hex.charAt(3), 16)]
+
+// 四位精度小数变分数
+const numberToRatio = (num: number): [number, number] => {
+    return [Math.round(num * 10000), 10000]
+}

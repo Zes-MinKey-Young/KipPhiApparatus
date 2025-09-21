@@ -1,5 +1,5 @@
 import { resolve } from "path";
-import { isccDirectory, outPutDir } from "./constants"
+import { isccDirectory, outputDir } from "./constants"
 
 async function runProgramAndPrintToConsole(cmd: string[], cwd?: string) {
     console.log(`运行：${cmd.join(" ")}`);
@@ -93,8 +93,8 @@ async function main() {
     }
 
     prompt("现在可以运行.iss文件了");
-    await runProgramAndPrintToConsole([resolve(isccDirectory, "ISCC.exe"), "/O" + outPutDir, "install.iss"], "..");
-    console.log("编译完成，结果在：", outPutDir);
+    await runProgramAndPrintToConsole([resolve(isccDirectory, "ISCC.exe"), "/O" + outputDir, "install.iss"], "..");
+    console.log("编译完成，结果在：", outputDir);
 
     prompt("最后把VERSION修改");
     await Bun.write(versionFile, nextVersion);

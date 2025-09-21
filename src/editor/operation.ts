@@ -787,6 +787,112 @@ class EventInterpolationOperation<VT> extends ComplexOperation<LazyOperation<typ
     }
 }
 
+
+const easingIsSegmented = (easing: Easing): easing is SegmentedEasing => {
+    return easing instanceof SegmentedEasing;
+}
+
+class EventSubstituteOperation extends ComplexOperation<[...LazyOperation<typeof EventNodePairInsertOperation>[], EventNodeEasingChangeOperation, EventNodeValueChangeOperation<number>]> {
+    updatesEditor = true;
+    constructor(public node: EventStartNode<number>) {
+        if (node.parentSeq.type === EventType.text) {
+            throw new Error("Cannot substitute text event");
+        }
+        if (!(node.innerEasing instanceof TemplateEasing)) {
+            throw new Error("Cannot substitute non-template easing");
+        }
+        if (node.next.type === NodeType.TAIL) {
+            throw new Error("Cannot substitute last StartNode");
+        }
+        const easing = node.easing;
+        const isSegmented = easingIsSegmented(easing);
+        const startValue = node.value;
+        const endValue = node.next.value;
+        const delta = endValue - startValue;
+        const startTime = node.time;
+        const timeDelta = TC.sub(node.next.time, startTime);
+        const srcSeq = node.innerEasing.eventNodeSequence;
+
+
+        let srcStart: number, srcEnd: number, leftDividedNode: EventStartNode, rightDividedNode: EventStartNode,
+            srcStartTime: TimeT, srcTimeDelta: TimeT, toStopAt: EventStartNode;
+        if (isSegmented) {
+            const totalDuration = TC.sub(srcSeq.tail.previous.time, srcSeq.head.next.time);
+            srcStart = srcSeq.getValueAt(easing.left * srcSeq.effectiveBeats)
+            srcEnd = srcSeq.getValueAt(easing.right * srcSeq.effectiveBeats, true);
+            leftDividedNode = srcSeq.getNodeAt(easing.left * srcSeq.effectiveBeats);
+            rightDividedNode = srcSeq.getNodeAt(easing.right * srcSeq.effectiveBeats, true);
+            toStopAt = rightDividedNode.next.next;
+            srcStartTime = TC.mul(totalDuration, numberToRatio(easing.left));
+            const srcEndTime = TC.mul(totalDuration, numberToRatio(easing.right));
+            TC.validateIp(srcStartTime);
+            TC.validateIp(srcEndTime);
+            srcTimeDelta = TC.sub(srcEndTime, srcStartTime);
+            TC.validateIp(srcTimeDelta);
+        } else {
+            srcStart = srcSeq.head.next.value;
+            srcEnd = srcSeq.tail.previous.value;
+            leftDividedNode = srcSeq.head.next;
+            rightDividedNode = srcSeq.tail.previous;
+            toStopAt = rightDividedNode;
+            srcStartTime = srcSeq.head.next.time;
+            srcTimeDelta = TC.sub(srcSeq.tail.previous.time, srcStartTime);
+        }
+        
+        const srcDelta = srcEnd - srcStart;
+        const ratio = TC.div(timeDelta, srcTimeDelta)
+        const operations: LazyOperation<typeof EventNodePairInsertOperation>[] = [];
+        
+        const convert: (v: number) => number
+            = (value: number) => startValue + (value - srcStart) * delta / srcDelta;
+        // 我恨TS没有运算符重载
+        const convertTime: (t: TimeT) => TimeT
+            = (time: TimeT) => TC.validateIp(TC.add(startTime, TC.mul(TC.sub(time, srcStartTime), ratio)));
+
+        let prev = node;
+        // 这里在到toStopAt之前一直都是非尾的
+        for (let n: EventEndNode<number> = leftDividedNode.next as EventEndNode<number>; n.next !== toStopAt; n = n.next.next) {
+            const endNode = n;
+            const startNode = n.next;
+            const newEnd = new EventEndNode(convertTime(endNode.time), convert(endNode.value));
+            const newStart = new EventStartNode(convertTime(startNode.time), convert(startNode.value));
+            newStart.easing = startNode.easing;
+            EventNode.connect(newEnd, newStart);
+            operations.push(EventNodePairInsertOperation.lazy(newStart, prev));
+            prev = newStart;
+        }
+        let eventNodeEasingChangeOperation: EventNodeEasingChangeOperation;
+        // 处理第一个节点的截段
+        if (isSegmented) {
+            const left = easing.left * srcSeq.effectiveBeats
+            if (TC.toBeats(leftDividedNode.time) - left > 1e-6) {
+                // 断言：这里left不会大于有效拍数
+                const newLeft = left / (TC.toBeats((leftDividedNode.next as EventEndNode).time) - TC.toBeats(leftDividedNode.time))
+                eventNodeEasingChangeOperation = new EventNodeEasingChangeOperation(node, new SegmentedEasing(leftDividedNode.easing, newLeft, 1.0));
+            } else {
+                eventNodeEasingChangeOperation = new EventNodeEasingChangeOperation(node, leftDividedNode.easing);
+            }
+        } else {
+            eventNodeEasingChangeOperation = new EventNodeEasingChangeOperation(node, srcSeq.head.next.easing);
+        }
+        // 处理最后一个节点的截段
+        if (isSegmented) {
+            const right = easing.right * srcSeq.effectiveBeats
+            if (TC.toBeats((rightDividedNode.next as EventEndNode).time) - right > 1e-6) {
+                // 断言：这里right不会大于有效拍数
+                const newRight = right / (TC.toBeats((rightDividedNode.next as EventEndNode).time) - TC.toBeats(rightDividedNode.time))
+                // 这时候prev是最后一个subst的node
+                prev.easing = new SegmentedEasing(rightDividedNode.easing, 0.0, newRight)
+            }
+
+        }
+        const endNode = node.next;
+        const envcOp = new EventNodeValueChangeOperation(endNode, isSegmented ? endNode.value : convert((srcSeq.tail.previous.previous as EventEndNode).value))
+
+        super(...operations, eventNodeEasingChangeOperation, envcOp);
+    }
+} 
+
 /*
 
 class BPMNodeValueChangeOperation extends Operation {
