@@ -276,6 +276,9 @@ class TimeCalculator {
         }
         return beaT;
     }
+    static vadd(beaT1: TimeT, beaT2: TimeT) { return this.validateIp(this.add(beaT1, beaT2)); }
+    static vsub(beaT1: TimeT, beaT2: TimeT) { return this.validateIp(this.sub(beaT1, beaT2)); }
+    static vmul(beaT: TimeT, ratio: [number, number]): TimeT { return this.validateIp(this.mul(beaT, ratio)); }
     static gcd(a: number, b: number): number {
         if (a === 0 || b === 0) {
             return 0;

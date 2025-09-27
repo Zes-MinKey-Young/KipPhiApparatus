@@ -1244,3 +1244,182 @@ class ChartPropChangeOperation<T extends ChartPropName> extends Operation {
         this.chart[this.field] = this.originalValue;
     }
 }
+
+
+
+type TimeRange = [TimeT, TimeT]
+
+/**
+ * 所有节点事件加上一个值。
+ * 此操作假定了节点被偏移时不会产生“碰撞”。
+ * 节点要有序
+ * @private
+ */
+class MultiNodeOffsetOperation extends Operation {
+    constructor(public nodes: readonly EventStartNode<any>[], public offset: TimeT) {
+        super();
+    }
+    do() {
+        const offset = this.offset;
+        const nodes = this.nodes;
+        const len = nodes.length;
+        const node = nodes[0];
+        if (node.previous.type !== NodeType.HEAD) {
+            node.time = TC.validateIp(TC.add(node.time, offset));
+            node.previous.time = TC.validateIp(TC.add(node.previous.time, offset));
+        }
+        for (let i = 1; i < len; i++) {
+            const node = nodes[i];
+            node.time = TC.validateIp(TC.add(node.time, offset));
+            const previous = node.previous as EventEndNode<any>;
+            previous.time = TC.validateIp(TC.add(previous.time, offset));
+        }
+    }
+    undo() {
+        const offset = this.offset;
+        const nodes = this.nodes;
+        const len = nodes.length;
+        const node = nodes[0];
+        if (node.previous.type !== NodeType.HEAD) {
+            node.time = TC.vadd(node.time, offset);
+            node.previous.time = TC.vadd(node.previous.time, offset);
+        }
+        for (let i = 1; i < len; i++) {
+            const node = nodes[i];
+            node.time = TC.vadd(node.time, offset);
+            const previous = node.previous as EventEndNode<any>;
+            previous.time = TC.vadd(previous.time, offset);
+        }
+    }
+}
+
+
+class ENSTimeRangeDeleteOperation extends ComplexOperation<[MultiNodeDeleteOperation, MultiNodeOffsetOperation]> {
+    beforeToStart: EventStartNode<any> | EventNodeLike<NodeType.HEAD, any>;
+    constructor(public eventNodeSequence: EventNodeSequence<any>, public timeRange: TimeRange) {
+        // 找出所有在范围内的节点并删除
+        let node = eventNodeSequence.getNodeAt(TC.toBeats(timeRange[0]));
+        const beforeToStart = EventNode.previousStartOfStart(node);
+        const toBeDeleted = eventNodeSequence.getNodesFromOneAndRangeRight(node, timeRange[1]);
+        // 将后续所有节点加入
+        const toBeOffset = eventNodeSequence.getNodesAfterOne(toBeDeleted[toBeDeleted.length - 1]);
+        super(new MultiNodeDeleteOperation(toBeDeleted), new MultiNodeOffsetOperation(toBeOffset, TC.vsub(timeRange[0], timeRange[1])))
+        this.beforeToStart = beforeToStart;
+    }
+    do() {
+        super.do();
+        const ens = this.eventNodeSequence;
+        ens.updateJump(this.beforeToStart, ens.tail);
+    }
+    undo() {
+        super.undo();
+        const ens = this.eventNodeSequence;
+        ens.updateJump(this.beforeToStart, ens.tail);
+    }
+}
+
+class ENSAddBlankOperation extends MultiNodeOffsetOperation {
+    updatesEditor = true;
+    constructor(public ens: EventNodeSequence<any>, pos: TimeT, length: TimeT) {
+        super(
+            ens.getNodesAfterOne(ens.getNodeAt(TC.toBeats(pos))),
+            length
+        );
+    }
+
+    do() {
+        super.do();
+        const ens = this.ens;
+        ens.updateJump(ens.head, ens.tail);
+    }
+    undo() {
+        super.undo();
+        const ens = this.ens;
+        ens.updateJump(ens.head, ens.tail);
+    }
+}
+
+// 按照规矩，音符节点的时间不可变，所以不会对音符节点动手。
+// 依旧不用组合的NoteTimeChangeOperation的方式，因为那需要多次更新跳数组。
+class MultiNoteOffsetOperation extends Operation {
+    constructor(public nnList: NNList, public notes: readonly Note[], public offset: TimeT) {
+        super();
+    }
+    do() {
+        const offset = this.offset;
+        const notes = this.notes;
+        const len = notes.length;
+        const nnList = this.nnList;
+        for (let i = 0; i < len; i++) {
+            const note = notes[i];
+            const startTime = TC.vadd(note.startTime, offset);
+            note.startTime = startTime;
+            note.endTime = TC.vadd(note.endTime, offset);
+            note.parentNode.remove(note);
+            nnList.getNodeOf(startTime).add(note);
+        }
+        nnList.jump.updateRange(nnList.head, nnList.tail);
+        if (nnList instanceof HNList) {
+            nnList.holdTailJump.updateRange(nnList.head, nnList.tail);
+        }
+    }
+    undo() {
+        const offset = this.offset;
+        const notes = this.notes;
+        const len = notes.length;
+        const nnList = this.nnList;
+        for (let i = 0; i < len; i++) {
+            const note = notes[i];
+            const startTime = TC.vsub(note.startTime, offset);
+            note.startTime = startTime;
+            note.endTime = TC.vsub(note.endTime, offset);
+            note.parentNode.remove(note);
+            nnList.getNodeOf(startTime).add(note);
+        }
+        nnList.jump.updateRange(nnList.head, nnList.tail);
+        if (nnList instanceof HNList) {
+            nnList.holdTailJump.updateRange(nnList.head, nnList.tail);
+        }
+    }
+    private static lazy() {}
+}
+
+
+class NNListTimeRangeDeleteOperation extends ComplexOperation<[MultiNoteDeleteOperation, MultiNoteOffsetOperation]> {
+    constructor(public nnList: NNList, public timeRange: TimeRange, public updatesJump: boolean = true) {
+        const delNodes = nnList.getNodesFromOneAndRangeRight(nnList.getNodeOf(timeRange[0]), timeRange[1]);
+        const delNotes = [];
+        const dlen = delNodes.length;
+        for (let i = 0; i < dlen; i++) {
+            delNotes.push(...delNodes[i].notes);
+        }
+        const offsetNodes = nnList.getNodesAfterOne(delNodes[dlen - 1]);
+        const offsetNotes = [];
+        const olen = offsetNodes.length;
+        for (let i = 0; i < olen; i++) {
+            offsetNotes.push(...offsetNodes[i].notes);
+        }
+        super(new MultiNoteDeleteOperation(delNotes), new MultiNoteOffsetOperation(nnList, offsetNotes, TC.vsub(timeRange[0], timeRange[1])));
+    }
+    do() {
+        super.do();
+        this.nnList.clearEmptyNodes(this.updatesJump)
+    }
+    undo() {
+        super.undo();
+        this.nnList.clearEmptyNodes(this.updatesJump)
+    }
+}
+
+class NNListAddBlankOperation extends MultiNoteOffsetOperation {
+    updatesEditor = true;
+    constructor(nnList: NNList, pos: TimeT, length: TimeT) {
+        const nns = nnList.getNodesAfterOne(nnList.getNodeOf(pos));
+        const notes = [];
+        const len = nns.length;
+        for (let i = 0; i < len; i++) {
+            notes.push(...nns[i].notes);
+        }
+        super(nnList, notes, length);
+    }
+}

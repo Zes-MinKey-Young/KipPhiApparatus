@@ -326,7 +326,7 @@ class NoteNode extends NoteNodeLike<NodeType.MIDDLE> implements TwoDirectionNode
         this.notes.splice(this.notes.indexOf(note), 1)
         note.parentNode = null
     }
-    static disconnect<T extends Connectee>(note1: T, note2: T) {
+    static disconnect(note1: NNOrHead, note2: NNOrTail) {
         if (note1) {
             note1.next = null;
         }
@@ -486,6 +486,56 @@ class NNList {
             speed: this.speed,
             medianYOffset: this.medianYOffset,
             noteNodes: nodes
+        }
+    }
+    
+    getNodesFromOneAndRangeRight(node: NoteNode, rangeRight: TimeT) {
+        const arr: NoteNode[] = []
+        for (; !TC.gt(node.startTime, rangeRight); ) {
+            arr.push(node);
+            const next = node.next;
+            if (next.type === NodeType.TAIL) {
+                break;
+            }
+            node = next;
+        }
+        return arr;
+    }
+    getNodesAfterOne(node: NoteNode) {
+        const arr: NoteNode[] = []
+        while (true) {
+            const next = node.next;
+            if (next.type === NodeType.TAIL) {
+                break;
+            }
+            node = next;
+            arr.push(node);
+        }
+        return arr;
+    }
+    
+    clearEmptyNodes(updatesJump: boolean = true) {
+        let node = this.head.next;
+        let lastNonEmptyNode: NoteNode = null;
+        while (node.type !== NodeType.TAIL) {
+            if (node.notes.length === 0) {
+                const next = node.next;
+                NoteNode.disconnect(node.previous, node);
+                node = next;
+            } else {
+                if (lastNonEmptyNode !== node.previous) {
+                    NoteNode.disconnect(node.previous, node);
+                    NoteNode.connect(lastNonEmptyNode, node);
+                }
+                lastNonEmptyNode = node;
+                node = node.next;
+            }
+        }
+        if (updatesJump) {
+            this.jump.updateRange(this.head, this.tail);
+            if (this instanceof HNList) {
+                this.holdTailJump.updateRange(this.head, this.tail);
+            }
         }
     }
 }

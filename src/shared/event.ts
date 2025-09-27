@@ -823,5 +823,30 @@ class EventNodeSequence<VT = number> { // 泛型的传染性这一块
             endValue: currentNode.value
         };
     }
+
+    getNodesFromOneAndRangeRight(node: EventStartNode<VT>, rangeRight: TimeT) {
+        const arr = []
+        for (; !TC.gt(node.time, rangeRight); ) {
+            const next = node.next;
+            arr.push(node);
+            if (next.type === NodeType.TAIL) {
+                break;
+            }
+            node = next.next;
+        }
+        return arr;
+    }
+    getNodesAfterOne(node: EventStartNode<VT>) {
+        const arr = []
+        while (true) {
+            const next = node.next;
+            if (next.type === NodeType.TAIL) {
+                break;
+            }
+            node = next.next;
+            arr.push(node);
+        }
+        return arr;
+    }
 }
 
