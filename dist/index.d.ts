@@ -1,5 +1,5 @@
 declare const VERSION = 180;
-declare const VERSION_STRING = "1.8.0-alpha2";
+declare const VERSION_STRING = "1.8.0";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -300,8 +300,6 @@ declare class JumpArray<T extends TwoDirectionNodeLike> {
  */
 declare const NNLIST_Y_OFFSET_HALF_SPAN = 100;
 declare const node2string: (node: AnyNN) => string;
-declare const rgb2hex: (rgb: RGB) => number;
-declare const hex2rgb: (hex: number) => RGB;
 declare const notePropTypes: {
     above: string;
     alpha: string;
@@ -403,7 +401,7 @@ declare class NoteNode extends NoteNodeLike<NodeType.MIDDLE> implements TwoDirec
      */
     sort(index: number): void;
     remove(note: Note): void;
-    static disconnect<T extends Connectee>(note1: T, note2: T): void;
+    static disconnect(note1: NNOrHead, note2: NNOrTail): void;
     static connect(note1: NNOrHead, note2: NNOrTail): void;
     static insert(note1: NNOrHead, inserted: NoteNode, note2: NNOrTail): void;
     dump(): NoteNodeDataKPA;
@@ -441,6 +439,9 @@ declare class NNList {
      */
     getNodeOf(time: TimeT): NoteNode;
     dumpKPA(): NNListDataKPA;
+    getNodesFromOneAndRangeRight(node: NoteNode, rangeRight: TimeT): NoteNode[];
+    getNodesAfterOne(node: NoteNode): NoteNode[];
+    clearEmptyNodes(updatesJump?: boolean): void;
 }
 /**
  * HoldNode的链表
@@ -497,6 +498,7 @@ declare class NNNList {
     getNode(time: TimeT): NNNode;
     addNoteNode(noteNode: NoteNode): void;
 }
+type ValueTypeOfEventType<T extends EventType> = [number, number, number, number, number, number, number, number, number, string, RGB][T];
 /**
  * 奇谱发生器使用中心来表示一个NNList的y值偏移范围，这个函数根据yOffset算出对应中心值
  * @param yOffset
@@ -510,12 +512,17 @@ declare class JudgeLine {
     hnLists: Map<string, HNList>;
     nnLists: Map<string, NNList>;
     eventLayers: EventLayer[];
+    extendedLayer: ExtendedLayer;
     father: JudgeLine;
     children: Set<JudgeLine>;
     moveX: number;
     moveY: number;
     rotate: number;
     alpha: number;
+    transformedX: number;
+    transformedY: number;
+    optimized: boolean;
+    zOrder: number;
     anchor: [number, number];
     hasAttachUI: boolean;
     /**
@@ -530,6 +537,7 @@ declare class JudgeLine {
     static fromRPEJSON(chart: Chart, id: number, data: JudgeLineDataRPE, templates: TemplateEasingLib, timeCalculator: TimeCalculator): JudgeLine;
     static fromKPAJSON(isOld: boolean, chart: Chart, id: number, data: JudgeLineDataKPA, templates: TemplateEasingLib, timeCalculator: TimeCalculator): JudgeLine;
     getNNListFromOldKPAJSON(lists: Map<string, NNList>, namePrefix: string, isHold: boolean, effectiveBeats: number, listData: NNListDataKPA, nnnList: NNNList, timeCalculator: TimeCalculator): void;
+    getLayer(index: "0" | "1" | "2" | "3" | "ex"): EventLayer | ExtendedLayer;
     updateSpeedIntegralFrom(beats: number, timeCalculator: TimeCalculator): void;
     /**
      * startY and endY must not be negative
@@ -560,7 +568,7 @@ declare class JudgeLine {
      * @param eventNodeSequences To Collect the sequences used in this line
      * @returns
      */
-    dumpKPA(eventNodeSequences: Set<EventNodeSequence>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA;
+    dumpKPA(eventNodeSequences: Set<EventNodeSequence<any>>, judgeLineGroups: JudgeLineGroup[]): JudgeLineDataKPA;
     updateEffectiveBeats(EB: number): void;
     static checkinterdependency(judgeLine: JudgeLine, toBeFather: JudgeLine): boolean;
 }
@@ -571,7 +579,11 @@ declare enum EventType {
     alpha = 3,
     speed = 4,
     easing = 5,
-    bpm = 6
+    bpm = 6,
+    scaleX = 7,
+    scaleY = 8,
+    text = 9,
+    color = 10
 }
 declare enum NoteType {
     tap = 1,
@@ -586,6 +598,12 @@ interface EventLayer {
     rotate?: EventNodeSequence;
     alpha?: EventNodeSequence;
     speed?: EventNodeSequence;
+}
+interface ExtendedLayer {
+    scaleX?: EventNodeSequence;
+    scaleY?: EventNodeSequence;
+    text?: EventNodeSequence<string>;
+    color?: EventNodeSequence<RGB>;
 }
 type Plain<T> = {
     [k: string]: T;
@@ -619,7 +637,7 @@ declare class Chart {
     illustrator: string;
     offset: number;
     templateEasingLib: TemplateEasingLib;
-    sequenceMap: Map<string, EventNodeSequence>;
+    sequenceMap: Map<string, EventNodeSequence<any>>;
     effectiveBeats: number;
     nnnList: NNNList;
     /**  */
@@ -644,7 +662,7 @@ declare class Chart {
     updateEffectiveBeats(duration: number): void;
     dumpKPA(): Required<ChartDataKPA>;
     createNNNode(time: TimeT): NNNode;
-    createEventNodeSequence(type: EventType, name: string): EventNodeSequence;
+    createEventNodeSequence<T extends EventType>(type: T, name: string): EventNodeSequence<ValueTypeOfEventType<T>>;
     countMaxCombo(): void;
     attachUIToLine(ui: UIName, judgeLine: JudgeLine): void;
     detachUI(ui: UIName): void;
@@ -666,18 +684,19 @@ declare class JudgeLineGroup {
  * @returns
  */
 declare function arrEq<T>(arr1: Array<T>, arr2: Array<T>): boolean;
-declare class EventNodeLike<T extends NodeType> {
+declare class EventNodeLike<T extends NodeType, VT = number> {
     type: T;
     /** 后一个事件节点 */
-    next: [EventStartNode, null, ENOrTail][T] | null;
+    next: [EventStartNode<VT>, null, ENOrTail<VT>][T] | null;
     /** 前一个事件节点 */
-    previous: [null, EventStartNode, ENOrHead][T] | null;
-    parentSeq: EventNodeSequence;
+    previous: [null, EventStartNode<VT>, ENOrHead<VT>][T] | null;
+    parentSeq: EventNodeSequence<VT>;
     constructor(type: T);
 }
-type ENOrTail = EventNode | EventNodeLike<NodeType.TAIL>;
-type ENOrHead = EventNode | EventNodeLike<NodeType.HEAD>;
-type AnyEN = EventNode | EventNodeLike<NodeType.HEAD> | EventNodeLike<NodeType.TAIL>;
+type ENOrTail<VT = number> = EventNode<VT> | EventNodeLike<NodeType.TAIL, VT>;
+type ENOrHead<VT = number> = EventNode<VT> | EventNodeLike<NodeType.HEAD, VT>;
+type AnyEN<VT = number> = EventNode<VT> | EventNodeLike<NodeType.HEAD, VT> | EventNodeLike<NodeType.TAIL, VT>;
+type EvSoE<VT = number> = EventEndNode<VT> | EventStartNode<VT>;
 /**
  * 事件节点基类
  * event node.
@@ -693,12 +712,12 @@ type AnyEN = EventNode | EventNodeLike<NodeType.HEAD> | EventNodeLike<NodeType.T
  * 与RPE不同的是，KPA使用两个节点来表示一个事件，而不是一个对象。
  * Different from that in RPE, KPA uses two nodes rather than one object to represent an event.
  */
-declare abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
+declare abstract class EventNode<VT = number> extends EventNodeLike<NodeType.MIDDLE, VT> {
     time: TimeT;
-    value: number;
+    value: VT;
     easing: Easing;
-    constructor(time: TimeT, value: number);
-    clone(offset: TimeT): EventStartNode | EventEndNode;
+    constructor(time: TimeT, value: VT);
+    clone(offset: TimeT): EventStartNode<VT> | EventEndNode<VT>;
     /**
      * gets the easing object from RPEEventData
      * @param data
@@ -707,46 +726,53 @@ declare abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      * @param templates
      * @returns
      */
-    static getEasing(data: EventDataKPA, left: number, right: number, templates: TemplateEasingLib): Easing;
+    static getEasing(data: EventDataKPA<any>, left: number, right: number, templates: TemplateEasingLib): Easing;
     /**
      * constructs EventStartNode and EventEndNode from EventDataRPE
      * @param data
      * @param templates
      * @returns
      */
-    static fromEvent(data: EventDataRPELike, templates: TemplateEasingLib): [EventStartNode, EventEndNode];
-    static connect(node1: EventStartNode, node2: EventEndNode | EventNodeLike<NodeType.TAIL>): void;
-    static connect(node1: EventEndNode | EventNodeLike<NodeType.HEAD>, node2: EventStartNode): void;
-    static removeNodePair(endNode: EventEndNode, startNode: EventStartNode): [EventStartNode | EventNodeLike<NodeType.HEAD>, EventStartNode | EventNodeLike<NodeType.TAIL>];
-    static insert(node: EventStartNode, tarPrev: EventStartNode): [EventNodeLike<NodeType.HEAD> | EventStartNode, EventStartNode | EventNodeLike<NodeType.TAIL>];
+    static fromEvent<VT extends RGB | number>(data: EventDataRPELike<VT>, templates: TemplateEasingLib): [EventStartNode<VT>, EventEndNode<VT>];
+    static fromTextEvent(data: EventDataRPELike<string>, templates: TemplateEasingLib): [EventStartNode<string>, EventEndNode<string>];
+    static connect<VT>(node1: EventStartNode<VT>, node2: EventEndNode<VT> | EventNodeLike<NodeType.TAIL, VT>): void;
+    static connect<VT>(node1: EventEndNode<VT> | EventNodeLike<NodeType.HEAD, VT>, node2: EventStartNode<VT>): void;
+    /**
+     *
+     * @param endNode
+     * @param startNode
+     * @returns 应该在何范围内更新跳数组
+     */
+    static removeNodePair<VT>(endNode: EventEndNode<VT>, startNode: EventStartNode<VT>): [EventStartNode<VT> | EventNodeLike<NodeType.HEAD, VT>, EventStartNode<VT> | EventNodeLike<NodeType.TAIL, VT>];
+    static insert<VT>(node: EventStartNode<VT>, tarPrev: EventStartNode<VT>): [EventNodeLike<NodeType.HEAD, VT> | EventStartNode<VT>, EventStartNode<VT> | EventNodeLike<NodeType.TAIL, VT>];
     /**
      *
      * @param node
      * @returns the next node if it is a tailer, otherwise the next start node
      */
-    static nextStartOfStart(node: EventStartNode): EventStartNode | EventNodeLike<NodeType.TAIL>;
+    static nextStartOfStart<VT>(node: EventStartNode<VT>): EventStartNode<VT> | EventNodeLike<NodeType.TAIL, VT>;
     /**
      *
      * @param node
      * @returns itself if node is a tailer, otherwise the next start node
      */
-    static nextStartOfEnd(node: EventEndNode | EventNodeLike<NodeType.TAIL>): EventStartNode | EventNodeLike<NodeType.TAIL>;
-    static previousStartOfStart(node: EventStartNode): EventStartNode | EventNodeLike<NodeType.HEAD>;
+    static nextStartOfEnd<VT>(node: EventEndNode<VT> | EventNodeLike<NodeType.TAIL, VT>): EventNodeLike<NodeType.TAIL, VT> | EventStartNode<VT>;
+    static previousStartOfStart<VT>(node: EventStartNode<VT>): EventStartNode<VT> | EventNodeLike<NodeType.HEAD, VT>;
     /**
      * It does not return the start node which form an event with it.
      * @param node
      * @returns
      */
-    static secondPreviousStartOfEnd(node: EventEndNode): EventStartNode | EventNodeLike<NodeType.HEAD>;
-    static nextStartInJumpArray(node: EventStartNode): EventStartNode | EventNodeLike<NodeType.TAIL>;
+    static secondPreviousStartOfEnd<VT>(node: EventEndNode<VT>): EventStartNode<VT> | EventNodeLike<NodeType.HEAD, VT>;
+    static nextStartInJumpArray<VT>(node: EventStartNode<VT>): EventStartNode<VT> | EventNodeLike<NodeType.TAIL, VT>;
     /**
      * 获得一对背靠背的节点。不适用于第一个StartNode
      * @param node
      * @returns
      */
-    static getEndStart(node: EventStartNode | EventEndNode): [EventEndNode, EventStartNode];
-    static getStartEnd(node: EventStartNode | EventEndNode): [EventStartNode, EventEndNode];
-    static setToNewOrderedArray(dest: TimeT, set: Set<EventStartNode>): [EventStartNode[], EventStartNode[]];
+    static getEndStart<VT>(node: EventStartNode<VT> | EventEndNode<VT>): [EventEndNode<VT>, EventStartNode<VT>];
+    static getStartEnd<VT>(node: EventStartNode<VT> | EventEndNode<VT>): [EventStartNode<VT>, EventEndNode<VT>];
+    static setToNewOrderedArray<VT>(dest: TimeT, set: Set<EventStartNode<VT>>): [EventStartNode<VT>[], EventStartNode<VT>[]];
     static belongToSequence(nodes: Set<EventStartNode>, sequence: EventNodeSequence): boolean;
     /**
      * 检验这些节点对是不是连续的
@@ -762,49 +788,57 @@ declare abstract class EventNode extends EventNodeLike<NodeType.MIDDLE> {
      */
     set innerEasing(easing: Exclude<Easing, SegmentedEasing>);
 }
-declare class EventStartNode extends EventNode {
-    next: EventEndNode | EventNodeLike<NodeType.TAIL>;
-    previous: EventEndNode | EventNodeLike<NodeType.HEAD>;
+declare const getValueFns: readonly [(current: number, timeDelta: number, value: number, nextVal: number, easing: Easing) => number, (current: number, timeDelta: number, value: string, nextVal: string, easing: Easing, interpretedAs: InterpreteAs) => string, (current: number, timeDelta: number, value: RGB, nextValue: RGB, easing: Easing) => number[]];
+declare enum InterpreteAs {
+    str = 0,
+    int = 1,
+    float = 2
+}
+declare class EventStartNode<VT = number> extends EventNode<VT> {
+    next: EventEndNode<VT> | EventNodeLike<NodeType.TAIL, VT>;
+    previous: EventEndNode<VT> | EventNodeLike<NodeType.HEAD, VT>;
     /**
      * 对于速度事件，从计算时的时刻到此节点的总积分
      */
     cachedIntegral?: number;
-    constructor(time: TimeT, value: number);
+    constructor(time: TimeT, value: VT);
     get easingIsSegmented(): boolean;
-    parentSeq: EventNodeSequence;
+    parentSeq: EventNodeSequence<VT>;
     /**
      * 因为是RPE和KPA共用的方法所以easingType可以为字符串
      * @returns
      */
-    dump(): EventDataKPA;
+    dump(): EventDataKPA<VT>;
     /**
      * 产生一个一拍长的短钩定事件
      * 仅用于编译至RPE时解决最后一个StartNode的问题
      * 限最后一个StartNode使用
      * @returns
      */
-    dumpAsLast(): EventDataRPELike;
-    getValueAt(beats: number): number;
-    getSpeedValueAt(beats: number): number;
+    dumpAsLast(): EventDataRPELike<VT>;
+    interpretedAs: InterpreteAs;
+    getValueAt(beats: number): VT;
+    private getValueFn;
+    getSpeedValueAt(this: EventStartNode<number>, beats: number): number;
     /**
      * 积分获取位移
      */
-    getIntegral(beats: number, timeCalculator: TimeCalculator): number;
-    getFullIntegral(timeCalculator: TimeCalculator): number;
+    getIntegral(this: EventStartNode<number>, beats: number, timeCalculator: TimeCalculator): number;
+    getFullIntegral(this: EventStartNode<number>, timeCalculator: TimeCalculator): number;
     isFirstStart(): boolean;
     isLastStart(): boolean;
-    clone(offset?: TimeT): EventStartNode;
-    clonePair(offset: TimeT): EventStartNode;
+    clone(offset?: TimeT): EventStartNode<VT>;
+    clonePair(offset: TimeT): EventStartNode<VT>;
     drawCurve(context: CanvasRenderingContext2D, startX: number, startY: number, endX: number, endY: number, matrix: Matrix): void;
 }
-declare class EventEndNode extends EventNode {
-    next: EventStartNode;
-    previous: EventStartNode;
-    get parentSeq(): EventNodeSequence;
-    set parentSeq(_parent: EventNodeSequence);
-    constructor(time: TimeT, value: number);
-    getValueAt(beats: number): number;
-    clone(offset?: TimeT): EventEndNode;
+declare class EventEndNode<VT = number> extends EventNode<VT> {
+    next: EventStartNode<VT>;
+    previous: EventStartNode<VT>;
+    get parentSeq(): EventNodeSequence<VT>;
+    set parentSeq(_parent: EventNodeSequence<VT>);
+    constructor(time: TimeT, value: VT);
+    getValueAt(beats: number): VT;
+    clone(offset?: TimeT): EventEndNode<VT>;
 }
 /**
  * 为一个链表结构。会有一个数组进行快跳。
@@ -825,22 +859,23 @@ declare class EventEndNode extends EventNode {
  * 插入或删除节点时，需要更新跳数组。
  * Remember to update the jump array when inserting or deleting nodes.
  */
-declare class EventNodeSequence {
+declare class EventNodeSequence<VT = number> {
     type: EventType;
     effectiveBeats: number;
     chart: Chart;
     /** id follows the format `#${lineid}.${layerid}.${typename}` by default */
     id: string;
     /** has no time or value */
-    head: EventNodeLike<NodeType.HEAD>;
+    head: EventNodeLike<NodeType.HEAD, VT>;
     /** has no time or value */
-    tail: EventNodeLike<NodeType.TAIL>;
-    jump?: JumpArray<AnyEN>;
+    tail: EventNodeLike<NodeType.TAIL, VT>;
+    jump?: JumpArray<AnyEN<VT>>;
     listLength: number;
     /** 一定是二的幂，避免浮点误差 */
     jumpAverageBeats: number;
     constructor(type: EventType, effectiveBeats: number);
-    static fromRPEJSON<T extends EventType>(type: T, data: EventDataRPELike[], chart: Chart, endValue?: number): EventNodeSequence;
+    static getDefaultValueFromEventType(type: EventType): number[] | 0 | "" | 1 | 10;
+    static fromRPEJSON<T extends EventType, VT = number>(type: T, data: EventDataRPELike<VT>[], chart: Chart, endValue?: number): EventNodeSequence<VT>;
     /**
      * 生成一个新的事件节点序列，仅拥有一个节点。
      * 需要分配ID！！！！！！
@@ -848,7 +883,7 @@ declare class EventNodeSequence {
      * @param effectiveBeats
      * @returns
      */
-    static newSeq(type: EventType, effectiveBeats: number): EventNodeSequence;
+    static newSeq<T extends EventType>(type: T, effectiveBeats: number): EventNodeSequence<ValueTypeOfEventType<T>>;
     /** validate() {
         /*
          * 奇谱发生器中事件都是首尾相连的
@@ -867,13 +902,15 @@ declare class EventNodeSequence {
     }
     **/
     initJump(): void;
-    updateJump(from: ENOrHead, to: ENOrTail): void;
+    updateJump(from: ENOrHead<VT>, to: ENOrTail<VT>): void;
     insert(): void;
-    getNodeAt(beats: number, usePrev?: boolean): EventStartNode;
-    getValueAt(beats: number, usePrev?: boolean): number;
-    getIntegral(beats: number, timeCalculator: TimeCalculator): number;
-    updateNodesIntegralFrom(beats: number, timeCalculator: TimeCalculator): void;
-    dump(): EventNodeSequenceDataKPA;
+    getNodeAt(beats: number, usePrev?: boolean): EventStartNode<VT>;
+    getValueAt(beats: number, usePrev?: boolean): VT;
+    getIntegral(this: EventNodeSequence<number>, beats: number, timeCalculator: TimeCalculator): number;
+    updateNodesIntegralFrom(this: EventNodeSequence<number>, beats: number, timeCalculator: TimeCalculator): void;
+    dump(): EventNodeSequenceDataKPA<VT>;
+    getNodesFromOneAndRangeRight(node: EventStartNode<VT>, rangeRight: TimeT): any[];
+    getNodesAfterOne(node: EventStartNode<VT>): any[];
 }
 /**
  *
@@ -956,6 +993,9 @@ declare class TimeCalculator {
      * @param beaT
      */
     static validateIp(beaT: TimeT): TimeT;
+    static vadd(beaT1: TimeT, beaT2: TimeT): TimeT;
+    static vsub(beaT1: TimeT, beaT2: TimeT): TimeT;
+    static vmul(beaT: TimeT, ratio: [number, number]): TimeT;
     static gcd(a: number, b: number): number;
     dump(): BPMSegmentData[];
 }
@@ -1225,9 +1265,11 @@ declare class ZEasingBox extends Z<"div"> {
     onChange(callback: (value: number) => void): this;
 }
 declare class ZRadioBox extends Z<"div"> {
-    callbacks: ((index: number) => void)[];
     $inputs: Z<"input">[];
     selectedIndex: number;
+    _disabledIndexes: number[];
+    get disabledIndexes(): number[];
+    set disabledIndexes(value: number[]);
     constructor(name: string, options: string[], defaultIndex?: number);
     onChange(callback: (index: number) => void): this;
     /**
@@ -1371,6 +1413,11 @@ declare const numNoun: (num: number, singular: string, plural?: string) => strin
 declare const numNounWithoutZero: (num: number, singular: string, plural?: string) => string;
 declare const bisearchInsertLeft: (arr: number[], target: number) => number;
 declare const formatTime: (minutes: number, seconds: number) => string;
+declare const rgb2hex: (rgb: RGB) => number;
+declare const hex2rgb: (hex: number) => RGB;
+declare const hex6StrToRgb: (hex: string) => RGB;
+declare const hex3StrToRgb: (hex: string) => RGB;
+declare const numberToRatio: (num: number) => [number, number];
 declare class NeedsReflowEvent extends Event {
     condition: number;
     constructor(condition: number);
@@ -1511,11 +1558,11 @@ declare class NoteTreeChangeOperation extends NoteAddOperation {
 }
 declare class EventNodePairRemoveOperation extends Operation {
     updatesEditor: boolean;
-    endNode: EventEndNode;
-    startNode: EventStartNode;
-    sequence: EventNodeSequence;
-    originalPrev: EventStartNode;
-    constructor(node: EventStartNode);
+    endNode: EventEndNode<any>;
+    startNode: EventStartNode<any>;
+    sequence: EventNodeSequence<any>;
+    originalPrev: EventStartNode<any>;
+    constructor(node: EventStartNode<any>);
     do(): void;
     undo(): void;
 }
@@ -1524,14 +1571,14 @@ declare class EventNodePairRemoveOperation extends Operation {
  * 如果这个节点对的时刻与节点对的时刻相同，那么该节点对将不会被插入。
  * 而是把原来开始节点的值修改。
  */
-declare class EventNodePairInsertOperation extends Operation {
+declare class EventNodePairInsertOperation<VT> extends Operation {
     updatesEditor: boolean;
-    node: EventStartNode;
-    tarPrev: EventStartNode;
-    originalSequence: EventNodeSequence;
+    node: EventStartNode<VT>;
+    tarPrev: EventStartNode<VT>;
+    originalSequence: EventNodeSequence<VT>;
     overlapped: boolean;
-    originalValue: number;
-    value: number;
+    originalValue: VT;
+    value: VT;
     /**
      *
      * @param node the node to insert
@@ -1539,7 +1586,7 @@ declare class EventNodePairInsertOperation extends Operation {
      * If the targetPrevious's time is the same as node's time, the node will not be inserted,
      * and the targetPrevious' value will be replaced with the node's value.
      */
-    constructor(node: EventStartNode, targetPrevious: EventStartNode);
+    constructor(node: EventStartNode<VT>, targetPrevious: EventStartNode<VT>);
     do(): void;
     undo(): void;
 }
@@ -1563,24 +1610,24 @@ class EventNodePairAddOperation extends Operation {
  * 节点对需要有序的，且不能有重叠
 
  */
-declare class MultiNodeAddOperation extends ComplexOperation<EventNodePairInsertOperation[]> {
+declare class MultiNodeAddOperation<VT> extends ComplexOperation<EventNodePairInsertOperation<VT>[]> {
     updatesEditor: boolean;
-    nodes: EventStartNode[];
-    constructor(nodes: EventStartNode[], seq: EventNodeSequence);
+    nodes: EventStartNode<VT>[];
+    constructor(nodes: EventStartNode<VT>[], seq: EventNodeSequence<VT>);
 }
 declare class MultiNodeDeleteOperation extends ComplexOperation<LazyOperation<typeof EventNodePairRemoveOperation>[]> {
     updatesEditor: boolean;
-    constructor(nodes: EventStartNode[]);
+    constructor(nodes: EventStartNode<any>[]);
 }
-declare class EventNodeValueChangeOperation extends Operation {
+declare class EventNodeValueChangeOperation<VT> extends Operation {
     updatesEditor: boolean;
-    node: EventNode;
-    value: number;
-    originalValue: number;
-    constructor(node: EventNode, val: number);
+    node: EventNode<VT>;
+    value: VT;
+    originalValue: VT;
+    constructor(node: EventNode<VT>, val: VT);
     do(): void;
     undo(): void;
-    rewrite(operation: EventNodeValueChangeOperation): boolean;
+    rewrite(operation: EventNodeValueChangeOperation<VT>): boolean;
 }
 declare class EventNodeTimeChangeOperation extends Operation {
     updatesEditor: boolean;
@@ -1589,41 +1636,55 @@ declare class EventNodeTimeChangeOperation extends Operation {
      * 这里两个node不是面对面，而是背靠背
      * i. e. EndNode -> StartNode
      */
-    startNode: EventStartNode;
-    endNode: EventEndNode;
+    startNode: EventStartNode<any>;
+    endNode: EventEndNode<any>;
     value: TimeT;
     originalValue: TimeT;
-    originalPrevious: EventStartNode;
-    newPrevious: EventStartNode;
-    constructor(node: EventStartNode | EventEndNode, val: TimeT);
+    originalPrevious: EventStartNode<any>;
+    newPrevious: EventStartNode<any>;
+    constructor(node: EventStartNode<any> | EventEndNode<any>, val: TimeT);
     do(): void;
     undo(): void;
 }
 declare class EventNodeInnerEasingChangeOperation extends Operation {
     updatesEditor: boolean;
-    startNode: EventStartNode;
+    startNode: EventStartNode<any>;
     value: Easing;
     originalValue: Easing;
-    constructor(node: EventStartNode | EventEndNode, val: Easing);
+    constructor(node: EventStartNode<any> | EventEndNode<any>, val: Easing);
     do(): void;
     undo(): void;
 }
 declare class EventNodeEasingChangeOperation extends Operation {
     updatesEditor: boolean;
-    startNode: EventStartNode;
+    startNode: EventStartNode<any>;
     value: Easing;
     originalValue: Easing;
-    constructor(node: EventStartNode | EventEndNode, val: Easing);
+    constructor(node: EventStartNode<any> | EventEndNode<any>, val: Easing);
     do(): void;
     undo(): void;
 }
-declare class EventInterpolationOperation extends ComplexOperation<LazyOperation<typeof EventNodePairInsertOperation>[]> {
-    eventStartNode: EventStartNode;
+declare class TextEventNodeInterpretationChangeOperation extends Operation {
+    node: EventStartNode<string>;
+    value: InterpreteAs;
+    originalValue: InterpreteAs;
+    constructor(node: EventStartNode<string>, value: InterpreteAs);
+    do(): void;
+    undo(): void;
+}
+declare class EventInterpolationOperation<VT> extends ComplexOperation<LazyOperation<typeof EventNodePairInsertOperation>[]> {
+    eventStartNode: EventStartNode<VT>;
     step: TimeT;
     updatesEditor: boolean;
-    constructor(eventStartNode: EventStartNode, step: TimeT);
+    constructor(eventStartNode: EventStartNode<VT>, step: TimeT);
 }
-declare class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation, EventNodeValueChangeOperation]> {
+declare const easingIsSegmented: (easing: Easing) => easing is SegmentedEasing;
+declare class EventSubstituteOperation extends ComplexOperation<[...LazyOperation<typeof EventNodePairInsertOperation>[], EventNodeEasingChangeOperation, EventNodeValueChangeOperation<number>]> {
+    node: EventStartNode<number>;
+    updatesEditor: boolean;
+    constructor(node: EventStartNode<number>);
+}
+declare class EncapsuleOperation extends ComplexOperation<[MultiNodeDeleteOperation, EventNodeEasingChangeOperation, EventNodeValueChangeOperation<number>]> {
     updatesEditor: boolean;
     constructor(nodes: EventStartNode[], easing: TemplateEasing);
 }
@@ -1659,7 +1720,7 @@ declare class JudgeLineRenameOperation extends Operation {
     do(): void;
     undo(): void;
 }
-type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture" | "cover";
+type JudgeLinePropName = "name" | "rotatesWithFather" | "anchor" | "texture" | "cover" | "zOrder";
 declare class JudgeLinePropChangeOperation<T extends JudgeLinePropName> extends Operation {
     judgeLine: JudgeLine;
     field: T;
@@ -1703,6 +1764,21 @@ declare class JudgeLineENSChangeOperation extends Operation {
     value: EventNodeSequence;
     originalValue: EventNodeSequence;
     constructor(judgeLine: JudgeLine, layerId: number, typeStr: BasicEventName, value: EventNodeSequence);
+    do(): void;
+    undo(): void;
+}
+type ENSOfTypeName<T extends ExtendedEventTypeName> = {
+    "scaleX": EventNodeSequence<number>;
+    "scaleY": EventNodeSequence<number>;
+    "text": EventNodeSequence<string>;
+    "color": EventNodeSequence<RGB>;
+}[T];
+declare class JudgeLineExtendENSChangeOperation<T extends ExtendedEventTypeName> extends Operation {
+    judgeLine: JudgeLine;
+    typeStr: T;
+    value: ENSOfTypeName<T> | null;
+    originalValue: ENSOfTypeName<T>;
+    constructor(judgeLine: JudgeLine, typeStr: T, value: ENSOfTypeName<T> | null);
     do(): void;
     undo(): void;
 }
@@ -1751,6 +1827,56 @@ declare class ChartPropChangeOperation<T extends ChartPropName> extends Operatio
     constructor(chart: Chart, field: T, value: Chart[T]);
     do(): void;
     undo(): void;
+}
+type TimeRange = [TimeT, TimeT];
+/**
+ * 所有节点事件加上一个值。
+ * 此操作假定了节点被偏移时不会产生“碰撞”。
+ * 节点要有序
+ * @private
+ */
+declare class MultiNodeOffsetOperation extends Operation {
+    nodes: readonly EventStartNode<any>[];
+    offset: TimeT;
+    constructor(nodes: readonly EventStartNode<any>[], offset: TimeT);
+    do(): void;
+    undo(): void;
+}
+declare class ENSTimeRangeDeleteOperation extends ComplexOperation<[MultiNodeDeleteOperation, MultiNodeOffsetOperation]> {
+    eventNodeSequence: EventNodeSequence<any>;
+    timeRange: TimeRange;
+    beforeToStart: EventStartNode<any> | EventNodeLike<NodeType.HEAD, any>;
+    constructor(eventNodeSequence: EventNodeSequence<any>, timeRange: TimeRange);
+    do(): void;
+    undo(): void;
+}
+declare class ENSAddBlankOperation extends MultiNodeOffsetOperation {
+    ens: EventNodeSequence<any>;
+    updatesEditor: boolean;
+    constructor(ens: EventNodeSequence<any>, pos: TimeT, length: TimeT);
+    do(): void;
+    undo(): void;
+}
+declare class MultiNoteOffsetOperation extends Operation {
+    nnList: NNList;
+    notes: readonly Note[];
+    offset: TimeT;
+    constructor(nnList: NNList, notes: readonly Note[], offset: TimeT);
+    do(): void;
+    undo(): void;
+    private static lazy;
+}
+declare class NNListTimeRangeDeleteOperation extends ComplexOperation<[MultiNoteDeleteOperation, MultiNoteOffsetOperation]> {
+    nnList: NNList;
+    timeRange: TimeRange;
+    updatesJump: boolean;
+    constructor(nnList: NNList, timeRange: TimeRange, updatesJump?: boolean);
+    do(): void;
+    undo(): void;
+}
+declare class NNListAddBlankOperation extends MultiNoteOffsetOperation {
+    updatesEditor: boolean;
+    constructor(nnList: NNList, pos: TimeT, length: TimeT);
 }
 declare const BEZIER_POINT_SIZE = 20;
 declare const HALF_BEZIER_POINT_SIZE: number;
@@ -1858,7 +1984,7 @@ declare class MultiNodeEditor extends SideEntityEditor<Set<EventStartNode>> {
     constructor();
     update(): void;
 }
-declare class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode> {
+declare class EventEditor<VT extends number | string | RGB> extends SideEntityEditor<EventStartNode<VT> | EventEndNode<VT>> {
     $titleContent: Z<"span">;
     $goPrev: ZButton;
     $goNext: ZButton;
@@ -1879,7 +2005,11 @@ declare class EventEditor extends SideEntityEditor<EventStartNode | EventEndNode
     $interpolationOuter: Z<"div">;
     $interpolationStep: ZFractionInput;
     $interpolateBtn: ZButton;
+    $substitute: ZButton;
     $bezierEditor: BezierEditor;
+    $interpreteAsSpanText: Z<"span">;
+    $interpreteAsOptionBox: ZDropdownOptionBox;
+    $colorNotation: Z<"span">;
     $delete: ZButton;
     $radioTabs: ZRadioTabs;
     constructor();
@@ -1897,6 +2027,7 @@ declare class JudgeLineInfoEditor extends SideEntityEditor<JudgeLine> {
     readonly $anchor: ZInputBox;
     readonly $group: ZDropdownOptionBox;
     readonly $newGroup: ZInputBox;
+    readonly $zOrder: ZArrowInputBox;
     readonly $createGroup: ZButton;
     readonly $createLine: ZButton;
     readonly $attachUI: ZCollapseController;
@@ -1975,16 +2106,23 @@ declare class SelectionManager<T> {
     setBasePriority(priority: number): void;
 }
 declare const SCOPING_COLOR = "#FAE";
+declare const COLOR_INTERPOLATION_STEP = 0.05;
+declare const COLOR_INTERPOLATION_MAX_STOPS = 20;
 declare const eventTypeMap: {
     valueGridSpan: number;
     valueRange: [number, number];
 }[];
-type EventTypeName = "moveX" | "moveY" | "alpha" | "rotate" | "speed" | "easing" | "bpm";
+type EventTypeName = "moveX" | "moveY" | "alpha" | "rotate" | "speed" | "easing" | "bpm" | "scaleX" | "scaleY" | "text" | "color";
+type ExtendedEventTypeName = "scaleX" | "scaleY" | "text" | "color";
 declare enum NewNodeState {
     controlsStart = 0,
     controlsEnd = 1,
     controlsBoth = 2
 }
+declare const eventTypeKeys: readonly ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm", "scaleX", "scaleY", "text", "color"];
+declare const normalTypes: readonly ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"];
+declare const extendedTypes: readonly ["scaleX", "scaleY", "text", "color"];
+declare const numericEventTypeKeys: readonly ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm", "scaleX", "scaleY"];
 declare class EventCurveEditors extends Z<"div"> {
     selectOptions: {
         none: BoxOption;
@@ -1994,16 +2132,18 @@ declare class EventCurveEditors extends Z<"div"> {
     };
     element: HTMLDivElement;
     $bar: Z<"div">;
-    $typeSelect: ZDropdownOptionBox;
-    $layerSelect: ZDropdownOptionBox;
-    $timeSpanInput: ZInputBox;
-    $editSwitch: ZSwitch;
-    $easingBox: ZEasingBox;
-    $newNodeStateSelect: ZDropdownOptionBox;
-    $encapsuleBtn: ZButton;
-    $templateNameInput: ZInputBox;
-    $rangeInput: ZInputBox;
-    $selectOption: ZDropdownOptionBox;
+    readonly normalOptions: BoxOption[];
+    readonly extendedOptions: BoxOption[];
+    readonly $typeSelect: ZDropdownOptionBox;
+    readonly $layerSelect: ZDropdownOptionBox;
+    readonly $timeSpanInput: ZInputBox;
+    readonly $editSwitch: ZSwitch;
+    readonly $easingBox: ZEasingBox;
+    readonly $newNodeStateSelect: ZDropdownOptionBox;
+    readonly $encapsuleBtn: ZButton;
+    readonly $templateNameInput: ZInputBox;
+    readonly $rangeInput: ZInputBox;
+    readonly $selectOption: ZDropdownOptionBox;
     selectState: SelectState;
     moveX: EventCurveEditor;
     moveY: EventCurveEditor;
@@ -2012,21 +2152,25 @@ declare class EventCurveEditors extends Z<"div"> {
     speed: EventCurveEditor;
     easing: EventCurveEditor;
     bpm: EventCurveEditor;
+    text: TextEventSequenceEditor;
+    color: ColorEventSequenceEditor;
+    scaleX: EventCurveEditor;
+    scaleY: EventCurveEditor;
     lastBeats: number;
     easingBeats: number;
-    clipboard: Set<EventStartNode>;
-    nodesSelection: Set<EventStartNode>;
+    clipboard: Set<EventStartNode<unknown>>;
+    nodesSelection: Set<EventStartNode<unknown>>;
     constructor();
     init(): void;
-    _selectedEditor: EventCurveEditor;
-    get selectedEditor(): EventCurveEditor;
-    set selectedEditor(val: EventCurveEditor);
+    _selectedEditor: EventCurveEditor | TextEventSequenceEditor;
+    get selectedEditor(): EventCurveEditor | TextEventSequenceEditor;
+    set selectedEditor(val: EventCurveEditor | TextEventSequenceEditor);
     _selectedLayer: "0" | "1" | "2" | "3" | "ex";
     get selectedLayer(): "0" | "1" | "2" | "3" | "ex";
     set selectedLayer(val: "0" | "1" | "2" | "3" | "ex");
     draw(beats?: number): void;
     target: JudgeLine;
-    changeTarget(target: JudgeLine): void;
+    changeTargetLine(target: JudgeLine): void;
     updateAdjustmentOptions(editor: EventCurveEditor): void;
 }
 type NodePosition = {
@@ -2060,8 +2204,8 @@ declare const computeAttach: (sortedAttachable: number[], value: number) => numb
 declare function generateAttachable(linear: [k: number, b: number], range: readonly [number, number]): number[];
 declare function divideOrMul(gridSpan: number, maximum: number): number;
 declare class EventCurveEditor {
-    type: EventType;
-    target: EventNodeSequence;
+    type: Exclude<EventType, EventType.text | EventType.color>;
+    target: EventNodeSequence<number>;
     targetEasing?: TemplateEasing;
     parentEditorSet: EventCurveEditors;
     innerHeight: number;
@@ -2080,13 +2224,12 @@ declare class EventCurveEditor {
     valueGridColor: RGB;
     padding: number;
     lastBeats: number;
-    selectionManager: SelectionManager<EventNode>;
+    selectionManager: SelectionManager<EventStartNode | EventEndNode>;
     state: EventCurveEditorState;
     wasEditing: boolean;
     _selectedNode: WeakRef<EventStartNode | EventEndNode>;
     pointedValue: number;
-    pointedBeats: number;
-    beatFraction: number;
+    pointedTime: TimeT;
     easing: NormalEasing;
     newNodeState: NewNodeState;
     selectState: SelectState;
@@ -2103,7 +2246,7 @@ declare class EventCurveEditor {
     set displayed(val: boolean);
     get active(): boolean;
     set active(val: boolean);
-    constructor(type: EventType, height: number, width: number, parent: EventCurveEditors);
+    constructor(type: Exclude<EventType, EventType.text | EventType.color>, height: number, width: number, parent: EventCurveEditors);
     matrix: Matrix;
     invertedMatrix: Matrix;
     canvasMatrix: Matrix;
@@ -2119,6 +2262,110 @@ declare class EventCurveEditor {
     autoRangeEnabled: boolean;
     adjust(values: number[]): void;
     changeTarget(line: JudgeLine, index: string): void;
+    paste(): void;
+    copy(): void;
+}
+declare class TextEventSequenceEditor {
+    target: EventNodeSequence<string>;
+    targetEasing?: TemplateEasing;
+    parentEditorSet: EventCurveEditors;
+    innerHeight: number;
+    innerWidth: number;
+    $element: Z<"div">;
+    element: HTMLDivElement;
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    timeRatio: number;
+    timeSpan: number;
+    timeGridInterval: number;
+    timeGridColor: RGB;
+    padding: number;
+    lastBeats: number;
+    selectionManager: SelectionManager<EventStartNode<string> | EventEndNode<string>>;
+    state: EventCurveEditorState;
+    wasEditing: boolean;
+    _selectedNode: WeakRef<EventStartNode<string> | EventEndNode<string>>;
+    pointedTime: TimeT;
+    easing: NormalEasing;
+    selectState: SelectState;
+    lastSelectState: SelectState;
+    mouseIn: boolean;
+    startingPoint: Coordinate;
+    startingCanvasPoint: Coordinate;
+    canvasPoint: Coordinate;
+    get selectedNode(): EventStartNode<string> | EventEndNode<string>;
+    set selectedNode(val: EventStartNode<string> | EventEndNode<string>);
+    private _active;
+    /** @deprecated use active instead */
+    get displayed(): boolean;
+    set displayed(val: boolean);
+    get active(): boolean;
+    set active(val: boolean);
+    constructor(height: number, width: number, parent: EventCurveEditors);
+    canvasMatrix: Matrix;
+    invertedCanvasMatrix: Matrix;
+    updateMatrix(): void;
+    appendTo(parent: HTMLElement): void;
+    downHandler(event: MouseEvent | TouchEvent): void;
+    upHandler(event: MouseEvent | TouchEvent): void;
+    initContext(): void;
+    drawCoordination(beats: number): void;
+    draw(beats?: number): void;
+    drawSequence(sequence: EventNodeSequence<string>, beats: number, startBeats: number, endBeats: number, index: number, total: number): void;
+    changeTarget(line: JudgeLine, index: string): void;
+    createTarget(line: JudgeLine): void;
+    paste(): void;
+    copy(): void;
+}
+declare class ColorEventSequenceEditor {
+    target: EventNodeSequence<RGB>;
+    targetEasing?: TemplateEasing;
+    parentEditorSet: EventCurveEditors;
+    innerHeight: number;
+    innerWidth: number;
+    $element: Z<"div">;
+    element: HTMLDivElement;
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    timeRatio: number;
+    timeSpan: number;
+    timeGridInterval: number;
+    timeGridColor: RGB;
+    padding: number;
+    lastBeats: number;
+    selectionManager: SelectionManager<EvSoE<RGB>>;
+    state: EventCurveEditorState;
+    wasEditing: boolean;
+    _selectedNode: WeakRef<EvSoE<RGB>>;
+    pointedTime: TimeT;
+    easing: NormalEasing;
+    selectState: SelectState;
+    lastSelectState: SelectState;
+    mouseIn: boolean;
+    startingPoint: Coordinate;
+    startingCanvasPoint: Coordinate;
+    canvasPoint: Coordinate;
+    get selectedNode(): EventStartNode<string> | EventEndNode<string>;
+    set selectedNode(val: EventStartNode<string> | EventEndNode<string>);
+    private _active;
+    /** @deprecated use active instead */
+    get displayed(): boolean;
+    set displayed(val: boolean);
+    get active(): boolean;
+    set active(val: boolean);
+    constructor(height: number, width: number, parent: EventCurveEditors);
+    canvasMatrix: Matrix;
+    invertedCanvasMatrix: Matrix;
+    updateMatrix(): void;
+    appendTo(parent: HTMLElement): void;
+    downHandler(event: MouseEvent | TouchEvent): void;
+    upHandler(event: MouseEvent | TouchEvent): void;
+    initContext(): void;
+    drawCoordination(beats: number): void;
+    draw(beats?: number): void;
+    drawSequence(sequence: EventNodeSequence<RGB>, beats: number, startBeats: number, endBeats: number, index: number, total: number): void;
+    changeTarget(line: JudgeLine, index: string): void;
+    createTarget(line: JudgeLine): void;
     paste(): void;
     copy(): void;
 }
@@ -2293,14 +2540,14 @@ declare class Editor extends EventTarget {
     operationList?: OperationList;
     chartType: "rpejson" | "kpajson";
     chartData: ChartDataRPE | ChartDataKPA;
-    progressBar: ZProgressBar;
+    readonly $progressBar: ZProgressBar;
     eventCurveEditors: EventCurveEditors;
     readonly $topbar: Z<"div">;
     readonly $preview: Z<"div">;
     readonly $noteInfo: Z<"div">;
     readonly $eventSequence: Z<"div">;
+    readonly $playButton: ZSwitch;
     readonly lineInfoEle: HTMLDivElement;
-    readonly playButton: HTMLButtonElement;
     readonly $timeDivisor: ZArrowInputBox;
     timeDivisor: number;
     readonly $saveButton: ZButton;
@@ -2348,17 +2595,18 @@ declare class Editor extends EventTarget {
  */
 declare class RPEChartCompiler {
     chart: Chart;
-    sequenceMap: Map<EventNodeSequence, EventNodeSequence>;
+    sequenceMap: Map<EventNodeSequence<any>, EventNodeSequence<any>>;
     interpolationStep: TimeT;
     constructor(chart: Chart);
     compileChart(): ChartDataRPE;
     compileJudgeLine(judgeLine: JudgeLine): JudgeLineDataRPE;
-    dumpEventNodeSequence(sequence: EventNodeSequence): EventDataRPELike[];
+    compileEvent<VT>(snode: EventStartNode<VT>, getValue: (node: EventStartNode<VT> | EventEndNode<VT>) => VT): EventDataRPELike<VT>;
+    dumpEventNodeSequence<VT>(sequence: EventNodeSequence<VT>): EventDataRPELike<VT>[];
     compileNNLists(nnLists: NNList[], hnLists: HNList[]): NoteDataRPE[];
     /**
      * 倒序转换为数组
      * @param nnList
-     * @returns
+     * @returns 一个按照时间降序排列的数组
      */
     nnListToArray(nnList: NNList): NoteDataRPE[];
     /**
@@ -2432,7 +2680,7 @@ declare const getImageFromType: (noteType: NoteType) => ImageBitmap | HTMLImageE
 declare const ENABLE_PLAYER = true;
 declare const DRAWS_NOTES = true;
 declare const DEFAULT_ASPECT_RATIO: number;
-declare const LINE_WIDTH = 10;
+declare const LINE_WIDTH = 6.75;
 declare const LINE_COLOR = "#CCCC77";
 declare const HIT_EFFECT_SIZE = 200;
 declare const HALF_HIT: number;
@@ -2474,7 +2722,8 @@ declare class Player {
     initGreyScreen(): void;
     computeCombo(): void;
     render(): void;
-    renderLine(matrix: Matrix, judgeLine: JudgeLine): void;
+    precalculate(matrix: Matrix, judgeLine: JudgeLine): void;
+    renderLine(judgeLine: JudgeLine): void;
     lastUnplayedNNNode: NNNode | NNNodeLike<NodeType.TAIL>;
     playSounds(): void;
     renderHitEffects(matrix: Matrix, tree: NNList, startBeats: number, endBeats: number, timeCalculator: TimeCalculator): void;

@@ -8,7 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 const VERSION = 180;
-const VERSION_STRING = "1.8.0-alpha2";
+const VERSION_STRING = "1.8.0";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -117,7 +117,9 @@ class Easing {
         const rightValue = this.getValue(easingRight);
         const timeDelta = easingRight - easingLeft;
         const delta = rightValue - leftValue;
-        console.log("lr", easingLeft, leftValue, easingRight, rightValue);
+        if (delta === 0) {
+            throw new Error('Easing delta cannot be zero.');
+        }
         return (t) => (this.getValue(easingLeft + timeDelta * t) - leftValue) / delta;
     }
     drawCurve(context, startX, startY, endX, endY) {
@@ -226,8 +228,11 @@ class TemplateEasing extends Easing {
     }
     getValue(t) {
         const seq = this.eventNodeSequence;
-        let delta = this.valueDelta;
-        const frac = seq.getValueAt(t * seq.effectiveBeats) - this.headValue;
+        const delta = this.valueDelta;
+        if (delta === 0) {
+            throw new Error('Easing delta cannot be zero.');
+        }
+        const frac = seq.getValueAt(t * seq.effectiveBeats, true) - this.headValue;
         return delta === 0 ? frac : frac / delta;
     }
     get valueDelta() {
@@ -665,12 +670,6 @@ const node2string = (node) => {
     }
     return `NN(${node.notes.length}) at ${node.startTime}`;
 };
-const rgb2hex = (rgb) => {
-    return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
-};
-const hex2rgb = (hex) => {
-    return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF];
-};
 const notePropTypes = {
     above: "boolean",
     alpha: "number",
@@ -1045,6 +1044,55 @@ class NNList {
             noteNodes: nodes
         };
     }
+    getNodesFromOneAndRangeRight(node, rangeRight) {
+        const arr = [];
+        for (; !TC.gt(node.startTime, rangeRight);) {
+            arr.push(node);
+            const next = node.next;
+            if (next.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            node = next;
+        }
+        return arr;
+    }
+    getNodesAfterOne(node) {
+        const arr = [];
+        while (true) {
+            const next = node.next;
+            if (next.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            node = next;
+            arr.push(node);
+        }
+        return arr;
+    }
+    clearEmptyNodes(updatesJump = true) {
+        let node = this.head.next;
+        let lastNonEmptyNode = null;
+        while (node.type !== 1 /* NodeType.TAIL */) {
+            if (node.notes.length === 0) {
+                const next = node.next;
+                NoteNode.disconnect(node.previous, node);
+                node = next;
+            }
+            else {
+                if (lastNonEmptyNode !== node.previous) {
+                    NoteNode.disconnect(node.previous, node);
+                    NoteNode.connect(lastNonEmptyNode, node);
+                }
+                lastNonEmptyNode = node;
+                node = node.next;
+            }
+        }
+        if (updatesJump) {
+            this.jump.updateRange(this.head, this.tail);
+            if (this instanceof HNList) {
+                this.holdTailJump.updateRange(this.head, this.tail);
+            }
+        }
+    }
 }
 /**
  * HoldNode的链表
@@ -1209,7 +1257,10 @@ class JudgeLine {
         this.hnLists = new Map();
         this.nnLists = new Map();
         this.eventLayers = [];
+        this.extendedLayer = {};
         this.children = new Set();
+        this.optimized = false;
+        this.zOrder = 0;
         this.anchor = [0.5, 0.5];
         this.hasAttachUI = false;
         this.rotatesWithFather = false;
@@ -1221,7 +1272,7 @@ class JudgeLine {
         // this.noteSpeeds = {};
     }
     static fromRPEJSON(chart, id, data, templates, timeCalculator) {
-        var _a;
+        var _a, _b;
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
@@ -1229,6 +1280,8 @@ class JudgeLine {
         line.cover = Boolean(data.isCover);
         line.rotatesWithFather = data.rotateWithFather;
         line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
+        line.texture = data.Texture || "line.png";
+        line.zOrder = (_b = data.zOrder) !== null && _b !== void 0 ? _b : 0;
         // Process UI
         if (data.attachUI) {
             // Must use template string, otherwise TypeScript would not recognize it as `keyof Chart`
@@ -1287,6 +1340,14 @@ class JudgeLine {
                 return sequence;
             }
         };
+        const createExtendedSequence = (type, events) => {
+            if (events) {
+                const sequence = EventNodeSequence.fromRPEJSON(type, events, chart);
+                sequence.id = `#${id}.ex.${EventType[type]}`;
+                chart.sequenceMap.set(sequence.id, sequence);
+                return sequence;
+            }
+        };
         for (let index = 0; index < length; index++) {
             const layerData = eventLayers[index];
             if (!layerData) {
@@ -1301,12 +1362,32 @@ class JudgeLine {
             };
             line.eventLayers[index] = layer;
         }
+        if (data.extended) {
+            if (data.extended.scaleXEvents) {
+                line.extendedLayer.scaleX = createExtendedSequence(EventType.scaleX, data.extended.scaleXEvents);
+            }
+            else {
+                line.extendedLayer.scaleX = chart.createEventNodeSequence(EventType.scaleX, `#${id}.ex.scaleX`);
+            }
+            if (data.extended.scaleYEvents) {
+                line.extendedLayer.scaleY = createExtendedSequence(EventType.scaleY, data.extended.scaleYEvents);
+            }
+            else {
+                line.extendedLayer.scaleY = chart.createEventNodeSequence(EventType.scaleY, `#${id}.ex.scaleY`);
+            }
+            if (data.extended.textEvents) {
+                line.extendedLayer.text = createExtendedSequence(EventType.text, data.extended.textEvents);
+            }
+            if (data.extended.colorEvents) {
+                line.extendedLayer.color = createExtendedSequence(EventType.color, data.extended.colorEvents);
+            }
+        }
         // line.updateNoteSpeeds();
         // line.computeNotePositionY(timeCalculator);
         return line;
     }
     static fromKPAJSON(isOld, chart, id, data, templates, timeCalculator) {
-        var _a, _b;
+        var _a, _b, _c, _d, _e;
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
@@ -1314,6 +1395,7 @@ class JudgeLine {
         line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
         line.texture = data.Texture || "line.png";
         line.cover = (_b = data.cover) !== null && _b !== void 0 ? _b : true;
+        line.zOrder = (_c = data.zOrder) !== null && _c !== void 0 ? _c : 0;
         chart.judgeLineGroups[data.group].add(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
@@ -1342,6 +1424,20 @@ class JudgeLine {
                 eventLayer[key] = chart.sequenceMap.get(eventLayerData[key]);
             }
             line.eventLayers.push(eventLayer);
+        }
+        line.extendedLayer.scaleX = ((_d = data.extended) === null || _d === void 0 ? void 0 : _d.scaleXEvents)
+            ? chart.sequenceMap.get(data.extended.scaleXEvents)
+            : chart.createEventNodeSequence(EventType.scaleX, `#${line.id}.ex.scaleX`);
+        line.extendedLayer.scaleY = ((_e = data.extended) === null || _e === void 0 ? void 0 : _e.scaleYEvents)
+            ? chart.sequenceMap.get(data.extended.scaleYEvents)
+            : chart.createEventNodeSequence(EventType.scaleY, `#${line.id}.ex.scaleY`);
+        if (data.extended) {
+            if (data.extended.textEvents) {
+                line.extendedLayer.text = chart.sequenceMap.get(data.extended.textEvents);
+            }
+            if (data.extended.colorEvents) {
+                line.extendedLayer.color = chart.sequenceMap.get(data.extended.colorEvents);
+            }
         }
         chart.judgeLines.push(line);
         return line;
@@ -1390,6 +1486,14 @@ class JudgeLine {
         for (const list of createdLists) {
             NoteNode.connect(list.currentPoint, list.tail);
             list.initJump();
+        }
+    }
+    getLayer(index) {
+        if (index === "ex") {
+            return this.extendedLayer;
+        }
+        else {
+            return this.eventLayers[index];
         }
     }
     updateSpeedIntegralFrom(beats, timeCalculator) {
@@ -1599,6 +1703,7 @@ class JudgeLine {
      * @returns
      */
     dumpKPA(eventNodeSequences, judgeLineGroups) {
+        var _a, _b, _c, _d;
         const children = [];
         for (let line of this.children) {
             children.push(line.dumpKPA(eventNodeSequences, judgeLineGroups));
@@ -1626,6 +1731,20 @@ class JudgeLine {
         for (let [id, list] of this.nnLists) {
             nnListsData[id] = list.dumpKPA();
         }
+        const extended = {
+            scaleXEvents: (_a = this.extendedLayer.scaleX) === null || _a === void 0 ? void 0 : _a.id,
+            scaleYEvents: (_b = this.extendedLayer.scaleY) === null || _b === void 0 ? void 0 : _b.id,
+            textEvents: (_c = this.extendedLayer.text) === null || _c === void 0 ? void 0 : _c.id,
+            colorEvents: (_d = this.extendedLayer.color) === null || _d === void 0 ? void 0 : _d.id,
+        };
+        eventNodeSequences.add(this.extendedLayer.scaleX);
+        eventNodeSequences.add(this.extendedLayer.scaleY);
+        if (this.extendedLayer.color) {
+            eventNodeSequences.add(this.extendedLayer.color);
+        }
+        if (this.extendedLayer.text) {
+            eventNodeSequences.add(this.extendedLayer.text);
+        }
         return {
             group: judgeLineGroups.indexOf(this.group),
             id: this.id,
@@ -1637,7 +1756,9 @@ class JudgeLine {
             eventLayers: eventLayers,
             hnLists: hnListsData,
             nnLists: nnListsData,
-            cover: this.cover
+            cover: this.cover,
+            extended: extended,
+            zOrder: this.zOrder === 0 ? undefined : this.zOrder
         };
     }
     updateEffectiveBeats(EB) {
@@ -1675,6 +1796,10 @@ var EventType;
     EventType[EventType["speed"] = 4] = "speed";
     EventType[EventType["easing"] = 5] = "easing";
     EventType[EventType["bpm"] = 6] = "bpm";
+    EventType[EventType["scaleX"] = 7] = "scaleX";
+    EventType[EventType["scaleY"] = 8] = "scaleY";
+    EventType[EventType["text"] = 9] = "text";
+    EventType[EventType["color"] = 10] = "color";
 })(EventType || (EventType = {}));
 var NoteType;
 (function (NoteType) {
@@ -1861,14 +1986,14 @@ class Chart {
     }
     dumpKPA() {
         var _a, _b, _c, _d, _e, _f, _g;
-        const eventNodeSequences = new Set();
+        const eventNodeSequenceCollector = new Set();
         const orphanLines = [];
         for (let line of this.orphanLines) {
-            orphanLines.push(line.dumpKPA(eventNodeSequences, this.judgeLineGroups));
+            orphanLines.push(line.dumpKPA(eventNodeSequenceCollector, this.judgeLineGroups));
         }
-        const envEasings = this.templateEasingLib.dump(eventNodeSequences);
+        const envEasings = this.templateEasingLib.dump(eventNodeSequenceCollector);
         const eventNodeSequenceData = [];
-        for (let sequence of eventNodeSequences) {
+        for (let sequence of eventNodeSequenceCollector) {
             eventNodeSequenceData.push(sequence.dump());
         }
         return {
@@ -1879,7 +2004,10 @@ class Chart {
             eventNodeSequences: eventNodeSequenceData,
             info: {
                 level: this.level,
-                name: this.name
+                name: this.name,
+                charter: this.charter,
+                illustrator: this.illustrator,
+                composer: this.composer
             },
             ui: {
                 combo: (_a = this.comboAttach) === null || _a === void 0 ? void 0 : _a.id,
@@ -2050,7 +2178,8 @@ class EventNodeLike {
 class EventNode extends EventNodeLike {
     constructor(time, value) {
         super(2 /* NodeType.MIDDLE */);
-        this.time = TimeCalculator.validateIp(time);
+        this.time = TimeCalculator.validateIp([...time]);
+        // @ts-ignore 不清楚什么时候会是undefined，但是留着准没错
         this.value = value !== null && value !== void 0 ? value : 0;
         this.easing = linearEasing;
     }
@@ -2115,6 +2244,36 @@ class EventNode extends EventNodeLike {
         }
         return [start, end];
     }
+    static fromTextEvent(data, templates) {
+        let startValue = data.start;
+        let endValue = data.end;
+        let interpreteAs = InterpreteAs.str;
+        if (/%P%/.test(startValue) && /%P%/.test(endValue)) {
+            startValue = startValue.replace(/%P%/g, "");
+            endValue = endValue.replace(/%P%/g, "");
+            if (startValue.includes(".") || startValue.includes("e") || startValue.includes("E")
+                || endValue.includes(".") || endValue.includes("e") || endValue.includes("E")) {
+                startValue = parseFloat(startValue) + "";
+                endValue = parseFloat(endValue) + "";
+                interpreteAs = InterpreteAs.float;
+            }
+            else {
+                startValue = parseInt(startValue) + "";
+                endValue = parseInt(endValue) + "";
+                interpreteAs = InterpreteAs.int;
+            }
+        }
+        let start = new EventStartNode(data.startTime, startValue);
+        let end = new EventEndNode(data.endTime, endValue);
+        start.interpretedAs = interpreteAs;
+        start.easing = EventNode.getEasing(data, data.easingLeft, data.easingRight, templates);
+        EventNode.connect(start, end);
+        if (!start.easing) {
+            start.easing = linearEasing;
+            console.error("No easing found for event:", data, start, "will use linear by default");
+        }
+        return [start, end];
+    }
     static connect(node1, node2) {
         node1.next = node2;
         node2.previous = node1;
@@ -2129,6 +2288,12 @@ class EventNode extends EventNodeLike {
         node.next = null;
     }
     */
+    /**
+     *
+     * @param endNode
+     * @param startNode
+     * @returns 应该在何范围内更新跳数组
+     */
     static removeNodePair(endNode, startNode) {
         const prev = endNode.previous;
         const next = startNode.next;
@@ -2262,9 +2427,77 @@ class EventNode extends EventNodeLike {
         }
     }
 }
+const getValueFns = [
+    (current, timeDelta, value, nextVal, easing) => {
+        // @ts-ignore TSC脑壳有问题
+        const valueDelta = nextVal - value;
+        // 其他类型，包括普通缓动和非钩定模板缓动
+        return value + easing.getValue(current / timeDelta) * valueDelta;
+    },
+    (current, timeDelta, value, nextVal, easing, interpretedAs) => {
+        if (interpretedAs === InterpreteAs.float) {
+            const start = parseFloat(value);
+            const delta = parseFloat(nextVal) - start;
+            return start + this.easing.getValue(current / timeDelta) * delta + "";
+        }
+        else if (interpretedAs === InterpreteAs.int) {
+            const start = parseInt(value);
+            const delta = parseInt(nextVal) - start;
+            return start + Math.round(this.easing.getValue(current / timeDelta) * delta) + "";
+        }
+        else if (value.startsWith(nextVal)) {
+            const startLen = nextVal.length;
+            const deltaLen = value.length - startLen;
+            const len = startLen + Math.floor(deltaLen * easing.getValue(current / timeDelta));
+            return value.substring(0, len);
+        }
+        else if (nextVal.startsWith(value)) {
+            const startLen = value.length;
+            const deltaLen = nextVal.length - startLen;
+            const len = startLen + Math.floor(deltaLen * easing.getValue(current / timeDelta));
+            return nextVal.substring(0, len);
+        }
+        else {
+            return value;
+        }
+    },
+    (current, timeDelta, value, nextValue, easing) => {
+        return value.map((v, i) => {
+            const nextVal = nextValue[i];
+            const value = v;
+            if (nextVal === value) {
+                return value;
+            }
+            else {
+                const delta = nextVal - value;
+                return value + easing.getValue(current / timeDelta) * delta;
+            }
+        });
+    }
+];
+var InterpreteAs;
+(function (InterpreteAs) {
+    InterpreteAs[InterpreteAs["str"] = 0] = "str";
+    InterpreteAs[InterpreteAs["int"] = 1] = "int";
+    InterpreteAs[InterpreteAs["float"] = 2] = "float";
+})(InterpreteAs || (InterpreteAs = {}));
 class EventStartNode extends EventNode {
     constructor(time, value) {
         super(time, value);
+        this.interpretedAs = InterpreteAs.str;
+        // 最史的一集，what can i say
+        if (typeof value === "number") {
+            // @ts-ignore
+            this.getValueFn = getValueFns[0];
+        }
+        else if (typeof value === "string") {
+            // @ts-ignore
+            this.getValueFn = getValueFns[1];
+        }
+        else {
+            // @ts-ignore
+            this.getValueFn = getValueFns[2];
+        }
     }
     get easingIsSegmented() {
         return this.easing instanceof SegmentedEasing;
@@ -2297,7 +2530,8 @@ class EventStartNode extends EventNode {
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
             startTime: this.time,
-            isParametric: easing instanceof ParametricEquationEasing
+            isParametric: easing instanceof ParametricEquationEasing,
+            interpreteAs: typeof this.value === "string" ? this.interpretedAs : undefined
         };
     }
     /**
@@ -2316,7 +2550,6 @@ class EventStartNode extends EventNode {
                 [0, 0, 0, 0],
             easingLeft: isSegmented ? this.easing.left : 0.0,
             easingRight: isSegmented ? this.easing.right : 1.0,
-            // @ts-expect-error
             easingType: easing instanceof TemplateEasing ?
                 (easing.name) :
                 easing instanceof NormalEasing ?
@@ -2344,15 +2577,12 @@ class EventStartNode extends EventNode {
         if (this.easing instanceof ParametricEquationEasing) {
             return this.easing.getValue(current / timeDelta);
         }
-        let valueDelta = this.next.value - this.value;
-        if (valueDelta === 0) {
-            return this.value;
+        const nextVal = this.next.value;
+        const value = this.value;
+        if (nextVal === value) {
+            return value;
         }
-        if (!this.easing) {
-            debugger;
-        }
-        // 其他类型，包括普通缓动和非钩定模板缓动
-        return this.value + this.easing.getValue(current / timeDelta) * valueDelta;
+        return this.getValueFn(current, timeDelta, value, nextVal, this.easing, this.interpretedAs);
     }
     getSpeedValueAt(beats) {
         if (this.next.type === 1 /* NodeType.TAIL */) {
@@ -2470,19 +2700,36 @@ class EventNodeSequence {
         // this.startNodes = [];
         // this.endNodes = [];
     }
+    static getDefaultValueFromEventType(type) {
+        return type === EventType.speed ? 10 :
+            type === EventType.scaleX || type === EventType.scaleY ? 1.0 :
+                type === EventType.text ? "" :
+                    type === EventType.color ? [0, 0, 0] :
+                        0;
+    }
     static fromRPEJSON(type, data, chart, endValue) {
         var _a, _b, _c;
-        const { templateEasingLib: templates, timeCalculator } = chart;
+        const { templateEasingLib: templates } = chart;
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
         // console.log(isSpeed)
         const seq = new EventNodeSequence(type, type === EventType.easing ? TimeCalculator.toBeats(data[length - 1].endTime) : chart.effectiveBeats);
         let listLength = length;
         let lastEnd = seq.head;
+        // 如果第一个事件不从0时间开始，那么添加一对面对面节点来垫背
+        if (data[0] && TC.ne(data[0].startTime, [0, 0, 1])) {
+            const value = data[0].start;
+            const start = new EventStartNode([0, 0, 1], value);
+            const end = new EventEndNode(data[0].startTime, value);
+            EventNode.connect(lastEnd, start);
+            EventNode.connect(start, end);
+            lastEnd = end;
+        }
         let lastIntegral = 0;
         for (let index = 0; index < length; index++) {
             const event = data[index];
-            let [start, end] = EventNode.fromEvent(event, templates);
+            // @ts-ignore
+            let [start, end] = (type === EventType.text ? EventNode.fromTextEvent(event, templates) : EventNode.fromEvent(event, templates));
             if (lastEnd.type === 0 /* NodeType.HEAD */) {
                 EventNode.connect(lastEnd, start);
             }
@@ -2531,7 +2778,7 @@ class EventNodeSequence {
      */
     static newSeq(type, effectiveBeats) {
         const sequence = new EventNodeSequence(type, effectiveBeats);
-        const node = new EventStartNode([0, 0, 1], type === EventType.speed ? 10 : 0);
+        const node = new EventStartNode([0, 0, 1], EventNodeSequence.getDefaultValueFromEventType(type));
         EventNode.connect(sequence.head, node);
         EventNode.connect(node, sequence.tail);
         sequence.initJump();
@@ -2613,7 +2860,8 @@ class EventNodeSequence {
     }
     getNodeAt(beats, usePrev = false) {
         var _a;
-        let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats)) || this.head.next;
+        let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats))
+            || this.head.next;
         if (node.type === 1 /* NodeType.TAIL */) {
             if (usePrev) {
                 return node.previous.previous.previous;
@@ -2665,6 +2913,30 @@ class EventNodeSequence {
             id: this.id,
             endValue: currentNode.value
         };
+    }
+    getNodesFromOneAndRangeRight(node, rangeRight) {
+        const arr = [];
+        for (; !TC.gt(node.time, rangeRight);) {
+            const next = node.next;
+            arr.push(node);
+            if (next.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            node = next.next;
+        }
+        return arr;
+    }
+    getNodesAfterOne(node) {
+        const arr = [];
+        while (true) {
+            const next = node.next;
+            if (next.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            node = next.next;
+            arr.push(node);
+        }
+        return arr;
     }
 }
 /**
@@ -2904,6 +3176,9 @@ class TimeCalculator {
         }
         return beaT;
     }
+    static vadd(beaT1, beaT2) { return this.validateIp(this.add(beaT1, beaT2)); }
+    static vsub(beaT1, beaT2) { return this.validateIp(this.sub(beaT1, beaT2)); }
+    static vmul(beaT, ratio) { return this.validateIp(this.mul(beaT, ratio)); }
     static gcd(a, b) {
         if (a === 0 || b === 0) {
             return 0;
@@ -3401,7 +3676,7 @@ class ZDropdownOptionBox extends Z {
         this.$optionList = $("div").addClass("dropdown-option-list");
         const optionList = this.$optionList;
         span.append(optionList);
-        this.options = options;
+        this.options = [...options];
         const length = options.length;
         for (let i = 0; i < length; i++) {
             const $element = options[i].getElement(this);
@@ -3409,6 +3684,7 @@ class ZDropdownOptionBox extends Z {
         }
         optionList.onClick((event) => {
             const target = event.target;
+            const options = this.options;
             if (target instanceof HTMLDivElement) {
                 if (target !== this.value.getElement(this).release()) {
                     let option;
@@ -3715,9 +3991,27 @@ class ZEasingBox extends Z {
     }
 }
 class ZRadioBox extends Z {
+    get disabledIndexes() {
+        return this._disabledIndexes;
+    }
+    set disabledIndexes(value) {
+        this._disabledIndexes = value;
+        for (let i = 0; i < this.$inputs.length; i++) {
+            this.$inputs[i].element.disabled = value.indexOf(i) >= 0;
+        }
+        // 如果当前的栏被禁，跳到第一个没被禁的
+        if (this.disabledIndexes.indexOf(this.selectedIndex) >= 0) {
+            for (let i = 0; i < this.$inputs.length; i++) {
+                if (this.disabledIndexes.indexOf(i) < 0) {
+                    this.selectedIndex = i;
+                    this.dispatchEvent(new ZValueChangeEvent());
+                    break;
+                }
+            }
+        }
+    }
     constructor(name, options, defaultIndex = 0) {
         super("div");
-        this.callbacks = [];
         this.$inputs = [];
         this.addClass("radio-box");
         for (let i = 0; i < options.length; i++) {
@@ -3730,7 +4024,7 @@ class ZRadioBox extends Z {
                     return;
                 }
                 this.selectedIndex = i;
-                this.callbacks.forEach(f => f(i));
+                this.dispatchEvent(new ZValueChangeEvent());
             });
             if (i === defaultIndex) {
                 $input.attr("checked", "true");
@@ -3739,7 +4033,9 @@ class ZRadioBox extends Z {
         this.selectedIndex = defaultIndex;
     }
     onChange(callback) {
-        this.callbacks.push(callback);
+        this.addEventListener("valueChange", () => {
+            callback(this.selectedIndex);
+        });
         return this;
     }
     /**
@@ -4128,6 +4424,18 @@ const formatTime = (minutes, seconds) => {
     const hrs = Math.floor(minutes / 60);
     minutes %= 60;
     return numNounWithoutZero(hrs, "hr") + " " + numNounWithoutZero(minutes, "min") + " " + numNounWithoutZero(seconds, "sec");
+};
+const rgb2hex = (rgb) => {
+    return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
+};
+const hex2rgb = (hex) => {
+    return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF];
+};
+const hex6StrToRgb = (hex) => hex2rgb(parseInt(hex.substring(1), 16));
+const hex3StrToRgb = (hex) => [parseInt(hex.charAt(1) + hex.charAt(1), 16), parseInt(hex.charAt(2) + hex.charAt(2), 16), parseInt(hex.charAt(3) + hex.charAt(3), 16)];
+// 四位精度小数变分数
+const numberToRatio = (num) => {
+    return [Math.round(num * 10000), 10000];
 };
 class NeedsReflowEvent extends Event {
     constructor(condition) {
@@ -4775,6 +5083,19 @@ class EventNodeEasingChangeOperation extends Operation {
         this.startNode.easing = this.originalValue;
     }
 }
+class TextEventNodeInterpretationChangeOperation extends Operation {
+    constructor(node, value) {
+        super();
+        this.node = node;
+        this.value = value;
+    }
+    do() {
+        this.node.interpretedAs = this.value;
+    }
+    undo() {
+        this.node.interpretedAs = this.originalValue;
+    }
+}
 // 这个地方得懒一下，不然每亩，导致撤回操作时只能撤回第一个插值节点。
 class EventInterpolationOperation extends ComplexOperation {
     constructor(eventStartNode, step) {
@@ -4796,6 +5117,103 @@ class EventInterpolationOperation extends ComplexOperation {
         super(...subOps);
         this.eventStartNode = eventStartNode;
         this.step = step;
+        this.updatesEditor = true;
+    }
+}
+const easingIsSegmented = (easing) => {
+    return easing instanceof SegmentedEasing;
+};
+class EventSubstituteOperation extends ComplexOperation {
+    constructor(node) {
+        if (node.parentSeq.type === EventType.text) {
+            throw new Error("Cannot substitute text event");
+        }
+        if (!(node.innerEasing instanceof TemplateEasing)) {
+            throw new Error("Cannot substitute non-template easing");
+        }
+        if (node.next.type === 1 /* NodeType.TAIL */) {
+            throw new Error("Cannot substitute last StartNode");
+        }
+        const easing = node.easing;
+        const isSegmented = easingIsSegmented(easing);
+        const startValue = node.value;
+        const endValue = node.next.value;
+        const delta = endValue - startValue;
+        const startTime = node.time;
+        const timeDelta = TC.sub(node.next.time, startTime);
+        const srcSeq = node.innerEasing.eventNodeSequence;
+        let srcStart, srcEnd, leftDividedNode, rightDividedNode, srcStartTime, srcTimeDelta, toStopAt;
+        if (isSegmented) {
+            const totalDuration = TC.sub(srcSeq.tail.previous.time, srcSeq.head.next.time);
+            srcStart = srcSeq.getValueAt(easing.left * srcSeq.effectiveBeats);
+            srcEnd = srcSeq.getValueAt(easing.right * srcSeq.effectiveBeats, true);
+            leftDividedNode = srcSeq.getNodeAt(easing.left * srcSeq.effectiveBeats);
+            rightDividedNode = srcSeq.getNodeAt(easing.right * srcSeq.effectiveBeats, true);
+            toStopAt = rightDividedNode.next.next;
+            srcStartTime = TC.mul(totalDuration, numberToRatio(easing.left));
+            const srcEndTime = TC.mul(totalDuration, numberToRatio(easing.right));
+            TC.validateIp(srcStartTime);
+            TC.validateIp(srcEndTime);
+            srcTimeDelta = TC.sub(srcEndTime, srcStartTime);
+            TC.validateIp(srcTimeDelta);
+        }
+        else {
+            srcStart = srcSeq.head.next.value;
+            srcEnd = srcSeq.tail.previous.value;
+            leftDividedNode = srcSeq.head.next;
+            rightDividedNode = srcSeq.tail.previous;
+            toStopAt = rightDividedNode;
+            srcStartTime = srcSeq.head.next.time;
+            srcTimeDelta = TC.sub(srcSeq.tail.previous.time, srcStartTime);
+        }
+        const srcDelta = srcEnd - srcStart;
+        const ratio = TC.div(timeDelta, srcTimeDelta);
+        const operations = [];
+        const convert = (value) => startValue + (value - srcStart) * delta / srcDelta;
+        // 我恨TS没有运算符重载
+        const convertTime = (time) => TC.validateIp(TC.add(startTime, TC.mul(TC.sub(time, srcStartTime), ratio)));
+        let prev = node;
+        // 这里在到toStopAt之前一直都是非尾的
+        for (let n = leftDividedNode.next; n.next !== toStopAt; n = n.next.next) {
+            const endNode = n;
+            const startNode = n.next;
+            const newEnd = new EventEndNode(convertTime(endNode.time), convert(endNode.value));
+            const newStart = new EventStartNode(convertTime(startNode.time), convert(startNode.value));
+            newStart.easing = startNode.easing;
+            EventNode.connect(newEnd, newStart);
+            operations.push(EventNodePairInsertOperation.lazy(newStart, prev));
+            prev = newStart;
+        }
+        let eventNodeEasingChangeOperation;
+        // 处理第一个节点的截段
+        if (isSegmented) {
+            const left = easing.left * srcSeq.effectiveBeats;
+            if (TC.toBeats(leftDividedNode.time) - left > 1e-6) {
+                // 断言：这里left不会大于有效拍数
+                const newLeft = left / (TC.toBeats(leftDividedNode.next.time) - TC.toBeats(leftDividedNode.time));
+                eventNodeEasingChangeOperation = new EventNodeEasingChangeOperation(node, new SegmentedEasing(leftDividedNode.easing, newLeft, 1.0));
+            }
+            else {
+                eventNodeEasingChangeOperation = new EventNodeEasingChangeOperation(node, leftDividedNode.easing);
+            }
+        }
+        else {
+            eventNodeEasingChangeOperation = new EventNodeEasingChangeOperation(node, srcSeq.head.next.easing);
+        }
+        // 处理最后一个节点的截段
+        if (isSegmented) {
+            const right = easing.right * srcSeq.effectiveBeats;
+            if (TC.toBeats(rightDividedNode.next.time) - right > 1e-6) {
+                // 断言：这里right不会大于有效拍数
+                const newRight = right / (TC.toBeats(rightDividedNode.next.time) - TC.toBeats(rightDividedNode.time));
+                // 这时候prev是最后一个subst的node
+                prev.easing = new SegmentedEasing(rightDividedNode.easing, 0.0, newRight);
+            }
+        }
+        const endNode = node.next;
+        const envcOp = new EventNodeValueChangeOperation(endNode, isSegmented ? endNode.value : convert(srcSeq.tail.previous.previous.value));
+        super(...operations, eventNodeEasingChangeOperation, envcOp);
+        this.node = node;
         this.updatesEditor = true;
     }
 }
@@ -5032,6 +5450,21 @@ class JudgeLineENSChangeOperation extends Operation {
         this.judgeLine.eventLayers[this.layerId][this.typeStr] = this.originalValue;
     }
 }
+class JudgeLineExtendENSChangeOperation extends Operation {
+    constructor(judgeLine, typeStr, value) {
+        super();
+        this.judgeLine = judgeLine;
+        this.typeStr = typeStr;
+        this.value = value;
+        this.originalValue = judgeLine.extendedLayer[typeStr];
+    }
+    do() {
+        this.judgeLine.extendedLayer[this.typeStr] = this.value;
+    }
+    undo() {
+        this.judgeLine.extendedLayer[this.typeStr] = this.originalValue;
+    }
+}
 class EventNodeSequenceRenameOperation extends Operation {
     constructor(sequence, newName) {
         super();
@@ -5124,6 +5557,179 @@ class ChartPropChangeOperation extends Operation {
     }
     undo() {
         this.chart[this.field] = this.originalValue;
+    }
+}
+/**
+ * 所有节点事件加上一个值。
+ * 此操作假定了节点被偏移时不会产生“碰撞”。
+ * 节点要有序
+ * @private
+ */
+class MultiNodeOffsetOperation extends Operation {
+    constructor(nodes, offset) {
+        super();
+        this.nodes = nodes;
+        this.offset = offset;
+    }
+    do() {
+        const offset = this.offset;
+        const nodes = this.nodes;
+        const len = nodes.length;
+        const node = nodes[0];
+        if (node.previous.type !== 0 /* NodeType.HEAD */) {
+            node.time = TC.validateIp(TC.add(node.time, offset));
+            node.previous.time = TC.validateIp(TC.add(node.previous.time, offset));
+        }
+        for (let i = 1; i < len; i++) {
+            const node = nodes[i];
+            node.time = TC.validateIp(TC.add(node.time, offset));
+            const previous = node.previous;
+            previous.time = TC.validateIp(TC.add(previous.time, offset));
+        }
+    }
+    undo() {
+        const offset = this.offset;
+        const nodes = this.nodes;
+        const len = nodes.length;
+        const node = nodes[0];
+        if (node.previous.type !== 0 /* NodeType.HEAD */) {
+            node.time = TC.vadd(node.time, offset);
+            node.previous.time = TC.vadd(node.previous.time, offset);
+        }
+        for (let i = 1; i < len; i++) {
+            const node = nodes[i];
+            node.time = TC.vadd(node.time, offset);
+            const previous = node.previous;
+            previous.time = TC.vadd(previous.time, offset);
+        }
+    }
+}
+class ENSTimeRangeDeleteOperation extends ComplexOperation {
+    constructor(eventNodeSequence, timeRange) {
+        // 找出所有在范围内的节点并删除
+        let node = eventNodeSequence.getNodeAt(TC.toBeats(timeRange[0]));
+        const beforeToStart = EventNode.previousStartOfStart(node);
+        const toBeDeleted = eventNodeSequence.getNodesFromOneAndRangeRight(node, timeRange[1]);
+        // 将后续所有节点加入
+        const toBeOffset = eventNodeSequence.getNodesAfterOne(toBeDeleted[toBeDeleted.length - 1]);
+        super(new MultiNodeDeleteOperation(toBeDeleted), new MultiNodeOffsetOperation(toBeOffset, TC.vsub(timeRange[0], timeRange[1])));
+        this.eventNodeSequence = eventNodeSequence;
+        this.timeRange = timeRange;
+        this.beforeToStart = beforeToStart;
+    }
+    do() {
+        super.do();
+        const ens = this.eventNodeSequence;
+        ens.updateJump(this.beforeToStart, ens.tail);
+    }
+    undo() {
+        super.undo();
+        const ens = this.eventNodeSequence;
+        ens.updateJump(this.beforeToStart, ens.tail);
+    }
+}
+class ENSAddBlankOperation extends MultiNodeOffsetOperation {
+    constructor(ens, pos, length) {
+        super(ens.getNodesAfterOne(ens.getNodeAt(TC.toBeats(pos))), length);
+        this.ens = ens;
+        this.updatesEditor = true;
+    }
+    do() {
+        super.do();
+        const ens = this.ens;
+        ens.updateJump(ens.head, ens.tail);
+    }
+    undo() {
+        super.undo();
+        const ens = this.ens;
+        ens.updateJump(ens.head, ens.tail);
+    }
+}
+// 按照规矩，音符节点的时间不可变，所以不会对音符节点动手。
+// 依旧不用组合的NoteTimeChangeOperation的方式，因为那需要多次更新跳数组。
+class MultiNoteOffsetOperation extends Operation {
+    constructor(nnList, notes, offset) {
+        super();
+        this.nnList = nnList;
+        this.notes = notes;
+        this.offset = offset;
+    }
+    do() {
+        const offset = this.offset;
+        const notes = this.notes;
+        const len = notes.length;
+        const nnList = this.nnList;
+        for (let i = 0; i < len; i++) {
+            const note = notes[i];
+            const startTime = TC.vadd(note.startTime, offset);
+            note.startTime = startTime;
+            note.endTime = TC.vadd(note.endTime, offset);
+            note.parentNode.remove(note);
+            nnList.getNodeOf(startTime).add(note);
+        }
+        nnList.jump.updateRange(nnList.head, nnList.tail);
+        if (nnList instanceof HNList) {
+            nnList.holdTailJump.updateRange(nnList.head, nnList.tail);
+        }
+    }
+    undo() {
+        const offset = this.offset;
+        const notes = this.notes;
+        const len = notes.length;
+        const nnList = this.nnList;
+        for (let i = 0; i < len; i++) {
+            const note = notes[i];
+            const startTime = TC.vsub(note.startTime, offset);
+            note.startTime = startTime;
+            note.endTime = TC.vsub(note.endTime, offset);
+            note.parentNode.remove(note);
+            nnList.getNodeOf(startTime).add(note);
+        }
+        nnList.jump.updateRange(nnList.head, nnList.tail);
+        if (nnList instanceof HNList) {
+            nnList.holdTailJump.updateRange(nnList.head, nnList.tail);
+        }
+    }
+    static lazy() { }
+}
+class NNListTimeRangeDeleteOperation extends ComplexOperation {
+    constructor(nnList, timeRange, updatesJump = true) {
+        const delNodes = nnList.getNodesFromOneAndRangeRight(nnList.getNodeOf(timeRange[0]), timeRange[1]);
+        const delNotes = [];
+        const dlen = delNodes.length;
+        for (let i = 0; i < dlen; i++) {
+            delNotes.push(...delNodes[i].notes);
+        }
+        const offsetNodes = nnList.getNodesAfterOne(delNodes[dlen - 1]);
+        const offsetNotes = [];
+        const olen = offsetNodes.length;
+        for (let i = 0; i < olen; i++) {
+            offsetNotes.push(...offsetNodes[i].notes);
+        }
+        super(new MultiNoteDeleteOperation(delNotes), new MultiNoteOffsetOperation(nnList, offsetNotes, TC.vsub(timeRange[0], timeRange[1])));
+        this.nnList = nnList;
+        this.timeRange = timeRange;
+        this.updatesJump = updatesJump;
+    }
+    do() {
+        super.do();
+        this.nnList.clearEmptyNodes(this.updatesJump);
+    }
+    undo() {
+        super.undo();
+        this.nnList.clearEmptyNodes(this.updatesJump);
+    }
+}
+class NNListAddBlankOperation extends MultiNoteOffsetOperation {
+    constructor(nnList, pos, length) {
+        const nns = nnList.getNodesAfterOne(nnList.getNodeOf(pos));
+        const notes = [];
+        const len = nns.length;
+        for (let i = 0; i < len; i++) {
+            notes.push(...nns[i].notes);
+        }
+        super(nnList, notes, length);
+        this.updatesEditor = true;
     }
 }
 const BEZIER_POINT_SIZE = 20;
@@ -5736,7 +6342,11 @@ class EventEditor extends SideEntityEditor {
         this.$interpolationOuter = $("div").addClass("flex-row", "side-editor-whole-line");
         this.$interpolationStep = new ZFractionInput().setValue([0, 1, 16]);
         this.$interpolateBtn = new ZButton("Interpolate");
+        this.$substitute = new ZButton("Substitute").addClass("progressive");
         this.$bezierEditor = new BezierEditor(window.innerWidth * 0.2);
+        this.$interpreteAsSpanText = $("span").text("Interpreted as:");
+        this.$interpreteAsOptionBox = new ZDropdownOptionBox(["str", "int", "float"].map(t => new BoxOption(t)));
+        this.$colorNotation = $("span").addClass("side-editor-info");
         this.$titleContent.text("EventNode (NULL)");
         this.$title.append(this.$titleContent, this.$goPrev, this.$goNext);
         this.$title
@@ -5768,6 +6378,9 @@ class EventEditor extends SideEntityEditor {
         const applyOpToNode = (node) => {
             const listOperations = editor.operationList.operations;
             const operation = listOperations[listOperations.length - 1];
+            if (typeof node.value === "string" || Array.isArray(node.value)) {
+                return void notify("You cannot apply last operation to a string node.");
+            }
             if (!operation) {
                 return void notify("There is no operation done in the OperatonList");
             }
@@ -5776,6 +6389,7 @@ class EventEditor extends SideEntityEditor {
                 return;
             }
             const delta = operation.value - operation.originalValue;
+            // @ts-ignore
             editor.operationList.do(new EventNodeValueChangeOperation(node, node.value + delta));
         };
         this.$applyLast.onClick(() => {
@@ -5788,20 +6402,61 @@ class EventEditor extends SideEntityEditor {
         this.$normalOuter.append(this.$easing, this.$normalLeft, this.$normalRight);
         this.$parametricOuter.append(this.$parametric);
         this.$interpolationOuter.append(this.$interpolateBtn, $("span").text("with Step: ").css("alignSelf", "center"), this.$interpolationStep);
+        this.$templateOuter.append(this.$templateEasing, $("br"), this.$templateLeft, this.$templateRight, $("br"), this.$substitute);
         this.$radioTabs = new ZRadioTabs("easing-type", {
             "Normal": this.$normalOuter,
-            "Template": this.$templateEasing,
+            "Template": this.$templateOuter,
             "Bezier": this.$bezierEditor,
             "Parametric": this.$parametricOuter
         });
         this.$delete = new ZButton("delete").addClass("destructive")
             .onClick(() => editor.operationList.do(new EventNodePairRemoveOperation(EventNode.getEndStart(this.target)[1])));
-        this.$body.append(this.$warning, $("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$applyLast, this.$radioTabs, this.$interpolationOuter, $("span").text("del"), this.$delete);
+        this.$body.append(this.$warning, $("span").text("time"), this.$time, $("span").text("value"), this.$value, this.$colorNotation, this.$interpreteAsSpanText, this.$interpreteAsOptionBox, this.$applyLast, this.$radioTabs, this.$interpolationOuter, $("span").text("del"), this.$delete);
+        this.$substitute.onClick(() => {
+            if (this.target.parentSeq.type === EventType.text || this.target.parentSeq.type === EventType.color) {
+                return void notify("Can't substitute text or color event node sequence.");
+            }
+            editor.operationList.do(new EventSubstituteOperation(this.target));
+        });
+        this.$interpreteAsOptionBox.whenValueChange((textContent) => {
+            if (this.target.parentSeq.type !== EventType.text) {
+                return void notify("Illegal action");
+            }
+            const interpreteAs = InterpreteAs[textContent];
+            editor.operationList.do(new TextEventNodeInterpretationChangeOperation(this.target, interpreteAs));
+        });
         this.$time.onChange((t) => {
             editor.operationList.do(new EventNodeTimeChangeOperation(this.target, t));
         });
         this.$value.whenValueChange(() => {
-            editor.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()));
+            const originalValue = this.target.value;
+            if (typeof originalValue === "number") {
+                // @ts-ignore
+                editor.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getNum()));
+            }
+            else if (typeof originalValue === "string") {
+                // @ts-ignore
+                editor.operationList.do(new EventNodeValueChangeOperation(this.target, this.$value.getValue()));
+            }
+            else {
+                const primitiveString = this.$value.getValue();
+                let value;
+                if (primitiveString.match(/^#[0-9a-fA-F]{6}$/)) {
+                    value = hex6StrToRgb(primitiveString);
+                }
+                else if (primitiveString.match(/^#[0-9a-fA-F]{3}$/)) {
+                    value = hex3StrToRgb(primitiveString);
+                }
+                else if (primitiveString.match(/\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*/)) {
+                    value = this.$value.getValue().split(",").map(s => parseInt(s.trim()));
+                }
+                else {
+                    return void notify("Wrong format");
+                }
+                console.log(primitiveString, value);
+                // @ts-ignore
+                editor.operationList.do(new EventNodeValueChangeOperation(this.target, value));
+            }
         });
         this.$easing.onChange((id) => this.setNormalEasing(id));
         this.$templateEasing.whenValueChange((name) => this.setTemplateEasing(name));
@@ -5885,6 +6540,20 @@ class EventEditor extends SideEntityEditor {
         else {
             this.$warning.text("");
         }
+        if (eventNode.parentSeq.type !== EventType.text) {
+            this.$interpreteAsSpanText.hide();
+            this.$interpreteAsOptionBox.hide();
+        }
+        else {
+            this.$interpreteAsSpanText.show();
+            this.$interpreteAsOptionBox.show();
+        }
+        if (eventNode.parentSeq.type === EventType.color) {
+            this.$colorNotation.text(`#${rgb2hex(eventNode.value).toString(16)}`);
+        }
+        else {
+            this.$colorNotation.text("");
+        }
         const isBPM = eventNode instanceof BPMStartNode || eventNode instanceof BPMEndNode;
         const isStart = eventNode instanceof EventStartNode;
         this.$titleContent.text(`${isBPM ? "BPM" : "Event"}${isStart ? "Start" : "End"}Node (from ${eventNode.parentSeq.id})`);
@@ -5912,6 +6581,9 @@ class EventEditor extends SideEntityEditor {
             this.$radioTabs.switchTo(3);
             this.$parametric.setValue(eventNode.innerEasing.equation);
         }
+        if (typeof eventNode.value !== "number") {
+            this.$radioTabs.$radioBox.disabledIndexes = [1, 3];
+        }
     }
 }
 function searchTexture(prefix) {
@@ -5932,6 +6604,7 @@ class JudgeLineInfoEditor extends SideEntityEditor {
         this.$anchor = new ZInputBox("0.5, 0.5");
         this.$group = new ZDropdownOptionBox([new BoxOption("Default")]);
         this.$newGroup = new ZInputBox("");
+        this.$zOrder = new ZArrowInputBox();
         this.$createGroup = new ZButton("Create");
         this.$createLine = new ZButton("Create");
         this.$attachUI = new ZCollapseController(true);
@@ -5966,13 +6639,16 @@ class JudgeLineInfoEditor extends SideEntityEditor {
         this.$attachUI.attach(...arr$element);
         this.$title.text("Judge Line");
         this.$body.append($("span").text("Cover"), this.$cover, $("span").text("Notes under the line of its side will not be rendered if `Cover` is set to true.")
-            .addClass("side-editor-info"), $("span").text("Father"), this.$father, $("span").text("Texture"), this.$texture, $("span").text("Anchor"), this.$anchor, $("span").text("Group"), this.$group, $("span").text("Attach UI"), this.$attachUI, ...arr$element, $("span").text("Rotates with father"), this.$rotatesWithFather, $("span").text("New Group"), $("div").append(this.$newGroup, this.$createGroup), $("span").text("New Line"), this.$createLine, $("span").text("del"), this.$del, this.$eventNodeSequence, this.$newEventSeqName, this.$setAsBindNote);
+            .addClass("side-editor-info"), $("span").text("Father"), this.$father, $("span").text("Texture"), this.$texture, $("span").text("Anchor"), this.$anchor, $("span").text("Group"), this.$group, $("span").text("zOrder"), this.$zOrder, $("span").text("Attach UI"), this.$attachUI, ...arr$element, $("span").text("Rotates with father"), this.$rotatesWithFather, $("span").text("New Group"), $("div").append(this.$newGroup, this.$createGroup), $("span").text("New Line"), this.$createLine, $("span").text("del"), this.$del, this.$eventNodeSequence, this.$newEventSeqName, this.$setAsBindNote);
         this.$cover.whenClickChange((checked) => {
             if (!this.target) {
                 notify("The target of this editor has been garbage-collected");
                 return;
             }
             editor.operationList.do(new JudgeLinePropChangeOperation(this.target, "cover", checked));
+        });
+        this.$zOrder.whenValueChange((num) => {
+            editor.operationList.do(new JudgeLinePropChangeOperation(this.target, "zOrder", num));
         });
         this.$father.whenValueChange((content) => {
             if (!this.target) {
@@ -6344,6 +7020,8 @@ class SelectionManager {
     }
 }
 const SCOPING_COLOR = "#FAE";
+const COLOR_INTERPOLATION_STEP = 0.05;
+const COLOR_INTERPOLATION_MAX_STOPS = 20;
 const eventTypeMap = [
     {
         valueGridSpan: 135,
@@ -6372,6 +7050,14 @@ const eventTypeMap = [
     {
         valueGridSpan: 40,
         valueRange: [0, 400]
+    },
+    {
+        valueGridSpan: 1,
+        valueRange: [-5, 5]
+    },
+    {
+        valueGridSpan: 1,
+        valueRange: [-5, 5]
     }
 ];
 var NewNodeState;
@@ -6380,8 +7066,11 @@ var NewNodeState;
     NewNodeState[NewNodeState["controlsEnd"] = 1] = "controlsEnd";
     NewNodeState[NewNodeState["controlsBoth"] = 2] = "controlsBoth";
 })(NewNodeState || (NewNodeState = {}));
+const eventTypeKeys = ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm", "scaleX", "scaleY", "text", "color"];
+const normalTypes = ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"];
+const extendedTypes = ["scaleX", "scaleY", "text", "color"];
+const numericEventTypeKeys = ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm", "scaleX", "scaleY"];
 class EventCurveEditors extends Z {
-    ;
     constructor() {
         super("div");
         this.selectOptions = {
@@ -6391,15 +7080,9 @@ class EventCurveEditors extends Z {
             exclude: new BoxOption("exclude")
         };
         this.$bar = $("div").addClass("event-curve-editors-bar");
-        this.$typeSelect = new ZDropdownOptionBox([
-            "moveX",
-            "moveY",
-            "alpha",
-            "rotate",
-            "speed",
-            "easing",
-            "bpm"
-        ].map((s) => new BoxOption(s)), true);
+        this.normalOptions = normalTypes.map((type) => new BoxOption(type));
+        this.extendedOptions = extendedTypes.map((type) => new BoxOption(type));
+        this.$typeSelect = new ZDropdownOptionBox(this.normalOptions, true);
         this.$layerSelect = new ZDropdownOptionBox(["0", "1", "2", "3", "ex"].map((s) => new BoxOption(s)), true);
         this.$timeSpanInput = new ZInputBox("4").attr("size", "3");
         this.$editSwitch = new ZSwitch("Edit");
@@ -6416,10 +7099,25 @@ class EventCurveEditors extends Z {
             if (!(["0", "1", "2", "3", "ex"]).includes(val)) {
                 throw new Error("Invalid layer");
             }
+            const wasEx = this.selectedLayer === "ex";
+            const isEx = val === "ex";
+            if (wasEx && !isEx) {
+                this.selectedEditor = this.moveX;
+                this.$typeSelect.replaceWithOptions(this.normalOptions);
+                this.$typeSelect.value = this.normalOptions[0];
+            }
+            else if (isEx && !wasEx) {
+                this.selectedEditor = this.scaleX;
+                this.$typeSelect.replaceWithOptions(this.extendedOptions);
+                this.$typeSelect.value = this.extendedOptions[0];
+            }
             // @ts-expect-error 上面已经排除（我也不知道什么时候会出这种）
             this.selectedLayer = val;
         });
         this.$rangeInput.whenValueChange((content) => {
+            if (this.selectedEditor instanceof TextEventSequenceEditor) {
+                return;
+            }
             if (content === "auto" || content === "") {
                 this.selectedEditor.autoRangeEnabled = true;
                 return;
@@ -6434,7 +7132,7 @@ class EventCurveEditors extends Z {
             this.selectedEditor.autoRangeEnabled = false;
         });
         this.$easingBox.onChange(id => {
-            for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
+            for (let type of eventTypeKeys) {
                 this[type].easing = rpeEasingArray[id];
             }
         });
@@ -6445,7 +7143,10 @@ class EventCurveEditors extends Z {
             "End"
         ].map((s) => new BoxOption(s)), true)
             .whenValueChange((val) => {
-            for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
+            for (let type of eventTypeKeys) {
+                if (type === "text") {
+                    continue;
+                }
                 this[type].newNodeState = NewNodeState["controls" + val];
             }
         });
@@ -6482,11 +7183,17 @@ class EventCurveEditors extends Z {
     }
     init() {
         const barHeight = this.$bar.clientHeight + 8;
-        for (let type of ["moveX", "moveY", "alpha", "rotate", "speed", "easing", "bpm"]) {
+        for (let type of numericEventTypeKeys) {
             this[type] = new EventCurveEditor(EventType[type], this.parent.clientHeight - barHeight, this.parent.clientWidth, this);
             this[type].active = false;
             this.append(this[type].element);
         }
+        this.text = new TextEventSequenceEditor(this.parent.clientHeight - barHeight, this.parent.clientWidth, this);
+        this.text.active = false;
+        this.append(this.text.element);
+        this.color = new ColorEventSequenceEditor(this.parent.clientHeight - barHeight, this.parent.clientWidth, this);
+        this.color.active = false;
+        this.append(this.color.element);
         this.selectedEditor = this.moveX;
     }
     get selectedEditor() {
@@ -6499,7 +7206,8 @@ class EventCurveEditors extends Z {
             this._selectedEditor.active = false;
         this._selectedEditor = val;
         val.active = true;
-        this.updateAdjustmentOptions(val);
+        if (val instanceof EventCurveEditor)
+            this.updateAdjustmentOptions(val);
         this.nodesSelection = new Set();
         this.draw();
     }
@@ -6508,9 +7216,13 @@ class EventCurveEditors extends Z {
     }
     set selectedLayer(val) {
         this._selectedLayer = val;
-        ["moveX", "moveY", "alpha", "rotate", "speed"].forEach((type) => {
-            this[type].changeTarget(this.target, val);
-        });
+        if (val === "ex") {
+        }
+        else {
+            ["moveX", "moveY", "alpha", "rotate", "speed"].forEach((type) => {
+                this[type].changeTarget(this.target, val);
+            });
+        }
     }
     draw(beats) {
         beats = beats || this.lastBeats;
@@ -6523,8 +7235,8 @@ class EventCurveEditors extends Z {
             this.selectedEditor.draw(beats);
         }
     }
-    changeTarget(target) {
-        ["moveX", "moveY", "alpha", "rotate", "speed"].forEach((type) => {
+    changeTargetLine(target) {
+        ["moveX", "moveY", "alpha", "rotate", "speed", "scaleX", "scaleY", "text", "color"].forEach((type) => {
             this[type].changeTarget(target, this.selectedLayer);
         });
         this.target = target;
@@ -6702,17 +7414,18 @@ class EventCurveEditor {
             const { x: beats, y: value } = coord.mul(this.invertedMatrix);
             this.pointedValue = computeAttach(this.attachableValues, value);
             const accurateBeats = beats + this.lastBeats;
-            this.pointedBeats = Math.floor(accurateBeats);
-            this.beatFraction = Math.round((accurateBeats - this.pointedBeats) * editor.timeDivisor);
-            if (this.beatFraction === editor.timeDivisor) {
-                this.pointedBeats += 1;
-                this.beatFraction = 0;
+            let pointedBeats = Math.floor(accurateBeats);
+            let beatFraction = Math.round((accurateBeats - pointedBeats) * editor.timeDivisor);
+            if (beatFraction === editor.timeDivisor) {
+                pointedBeats += 1;
+                beatFraction = 0;
             }
+            this.pointedTime = [pointedBeats, beatFraction, editor.timeDivisor];
             switch (this.state) {
                 case EventCurveEditorState.selecting:
                     // console.log("det")
                     editor.operationList.do(new EventNodeValueChangeOperation(this.selectedNode, this.pointedValue));
-                    editor.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, [this.pointedBeats, this.beatFraction, editor.timeDivisor]));
+                    editor.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, this.pointedTime));
             }
             this.draw();
         });
@@ -6756,6 +7469,7 @@ class EventCurveEditor {
                 notify("Template name already exists");
                 return;
             }
+            // 普通的ECE激活时一定是选中的普通节点，断言是安全的
             const op = encapsule(lib, this.target, this.parentEditorSet.nodesSelection, name);
             if (op === EncapsuleErrorType.NotBelongToSourceSequence) {
                 notify("Not belong to source sequence");
@@ -6844,9 +7558,7 @@ class EventCurveEditor {
                 this.wasEditing = false;
                 break;
             case EventCurveEditorState.edit:
-                const timeDivisor = editor.timeDivisor;
-                const { beatFraction, pointedBeats } = this;
-                const time = [pointedBeats, beatFraction, timeDivisor];
+                const time = this.pointedTime;
                 const prev = this.target.getNodeAt(TimeCalculator.toBeats(time));
                 if (TimeCalculator.eq(prev.time, time)) {
                     break;
@@ -6990,8 +7702,9 @@ class EventCurveEditor {
         context.fillText("Sequence: " + this.target.id, 10, -50);
         context.fillText(`fps: ${shortenFloat(editor.frameRate, 2)}`, 10, -70);
         context.fillText(`Time: ${shortenFloat(editor.player.time, 4)}s`, 10, 40);
-        if (typeof this.pointedBeats === "number") {
-            context.fillText(`pointedTime: ${this.pointedBeats}:${this.beatFraction}/${editor.timeDivisor}`, 10, 10);
+        const pointedTime = this.pointedTime;
+        if (pointedTime) {
+            context.fillText(`pointedTime: ${pointedTime[0]}:${pointedTime[1]}/${pointedTime[2]}`, 10, 10);
         }
         if (this.canvasPoint) {
             this.context.fillText(`Cursor: ${this.canvasPoint.x}, ${this.canvasPoint.y}`, 10, -90);
@@ -7015,7 +7728,7 @@ class EventCurveEditor {
                 if (judgeLine === line) {
                     continue;
                 }
-                const sequence = judgeLine.eventLayers[parent.$layerSelect.value.text][EventType[this.type]];
+                const sequence = judgeLine.extendedLayer[EventType[this.type]];
                 if (!sequence) {
                     continue;
                 }
@@ -7192,14 +7905,32 @@ class EventCurveEditor {
             console.error("Easing does not use changeTarget. Assign directly instead.");
             return;
         }
+        if (this.type === EventType.scaleX || this.type === EventType.scaleY) {
+            const seq = line.extendedLayer[EventType[this.type]];
+            if (seq) {
+                this.target = seq;
+            }
+            else {
+                const seq = editor.chart.createEventNodeSequence(this.type, `#${line.id}.ex.${EventType[this.type]}`);
+                line.extendedLayer[EventType[this.type]] = seq;
+                this.target = seq;
+                notify(`Created a new EventNodeSequence ${this.target.id}. This is not an operation, and thus you cannot undo.`);
+            }
+            return;
+        }
+        if (index === "ex") {
+            return;
+        }
         line.eventLayers[index] = line.eventLayers[index] || {};
         const seq = line.eventLayers[index][EventType[this.type]];
         if (seq) {
             this.target = seq;
         }
         else {
-            this.target = editor.chart.createEventNodeSequence(this.type, `#${this.target.id}.${index}.${EventType[this.type]}`);
-            notify("Created a new EventNodeSequence. This is not an operation, and thus you cannot undo.");
+            const seq = editor.chart.createEventNodeSequence(this.type, `#${line.id}.${index}.${EventType[this.type]}`);
+            this.target = seq;
+            line.eventLayers[index][EventType[this.type]] = seq;
+            notify(`Created a new EventNodeSequence ${this.target.id}. This is not an operation, and thus you cannot undo.`);
         }
     }
     paste() {
@@ -7212,10 +7943,18 @@ class EventCurveEditor {
         if (!clipboard || clipboard.size === 0) {
             return;
         }
+        for (let ele of clipboard) {
+            if (typeof ele.value === "number") {
+                break;
+            }
+            else {
+                return;
+            }
+        }
         if (!lastBeats) {
             notify("Have not rendered a frame");
         }
-        const dest = [this.pointedBeats, this.beatFraction, timeDivisor];
+        const dest = this.pointedTime;
         const [_, newNodes] = EventNode.setToNewOrderedArray(dest, clipboard);
         editor.operationList.do(new MultiNodeAddOperation(newNodes, this.target));
         editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection = new Set(newNodes);
@@ -7229,6 +7968,917 @@ class EventCurveEditor {
         this.parentEditorSet.clipboard = this.parentEditorSet.nodesSelection;
         this.parentEditorSet.nodesSelection = new Set();
         editor.update();
+    }
+}
+class TextEventSequenceEditor {
+    get selectedNode() {
+        if (!this._selectedNode) {
+            return undefined;
+        }
+        return this._selectedNode.deref();
+    }
+    set selectedNode(val) {
+        this._selectedNode = new WeakRef(val);
+        editor.eventEditor.target = val;
+    }
+    /** @deprecated use active instead */
+    get displayed() { return this.active; }
+    set displayed(val) { this.active = val; }
+    get active() {
+        return this._active;
+    }
+    set active(val) {
+        if (val === this._active) {
+            return;
+        }
+        this._active = val;
+        if (val) {
+            this.element.style.display = "";
+        }
+        else {
+            this.element.style.display = "none";
+        }
+    }
+    constructor(height, width, parent) {
+        this.lastSelectState = SelectState.extend;
+        this.parentEditorSet = parent;
+        this._active = true;
+        this.$element = $("div");
+        this.element = this.$element.element;
+        this.active = false;
+        this.state = EventCurveEditorState.select;
+        this.selectionManager = new SelectionManager();
+        this.canvas = document.createElement("canvas");
+        this.element.append(this.canvas);
+        this.canvas.width = width;
+        this.canvas.height = height;
+        this.padding = 14;
+        this.innerHeight = this.canvas.height - this.padding * 2;
+        this.innerWidth = this.canvas.width - this.padding * 2;
+        this.context = this.canvas.getContext("2d");
+        this.context.font = "16px Phigros";
+        this.timeSpan = 4;
+        this.timeRatio = this.innerWidth / this.timeSpan;
+        this.timeGridInterval = 1;
+        this.timeGridColor = [120, 255, 170];
+        this.initContext();
+        this.easing = easingMap.linear.in;
+        // 下面有一堆监听器
+        // #region
+        parent.$editSwitch.whenClickChange((checked) => {
+            this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
+        });
+        parent.$timeSpanInput.whenValueChange((val) => {
+            this.timeSpan = parent.$timeSpanInput.getNum();
+            this.draw();
+        });
+        on(["mousemove", "touchmove"], this.canvas, (event) => {
+            const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+            const coord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+            const offsetBeats = coord.x / this.timeGridInterval / this.timeRatio;
+            const accurateBeats = offsetBeats + this.lastBeats;
+            let pointedBeats = Math.floor(accurateBeats);
+            let beatFraction = Math.round((accurateBeats - pointedBeats) * editor.timeDivisor);
+            if (beatFraction === editor.timeDivisor) {
+                pointedBeats += 1;
+                beatFraction = 0;
+            }
+            this.pointedTime = [pointedBeats, beatFraction, editor.timeDivisor];
+            switch (this.state) {
+                case EventCurveEditorState.selecting:
+                    // console.log("det")
+                    editor.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, this.pointedTime));
+            }
+            this.draw();
+        });
+        on(["mousedown", "touchstart"], this.canvas, (event) => {
+            this.downHandler(event);
+            this.draw();
+        });
+        on(["mouseup", "touchend"], this.canvas, (event) => {
+            this.upHandler(event);
+            this.draw();
+        });
+        parent.$selectOption.whenValueChange((v) => {
+            this.selectState = SelectState[v];
+            if (this.selectState === SelectState.none) {
+                this.state = EventCurveEditorState.select;
+            }
+            else {
+                this.state = EventCurveEditorState.selectScope;
+                this.lastSelectState = this.selectState;
+            }
+        });
+        this.mouseIn = false;
+        this.canvas.addEventListener("mouseenter", () => {
+            this.mouseIn = true;
+        });
+        this.canvas.addEventListener("mouseleave", () => {
+            this.mouseIn = false;
+        });
+        parent.$encapsuleBtn.onClick(() => {
+            if (!this.active) {
+                return;
+            }
+            notify("Encapsulation is not supported for text.");
+        });
+        window.addEventListener("keydown", (e) => {
+            if (!this.mouseIn) {
+                return;
+            }
+            if (document.activeElement !== document.body) {
+                return;
+            }
+            e.preventDefault();
+            if (e.key === "Shift") {
+                if (this.state === EventCurveEditorState.selectScope || this.state === EventCurveEditorState.selectingScope) {
+                    return;
+                }
+                parent.$selectOption.value = parent.selectOptions[SelectState[this.lastSelectState]];
+                this.state = EventCurveEditorState.selectScope;
+                this.selectState = this.lastSelectState;
+                this.draw();
+                return;
+            }
+            switch (e.key.toLowerCase()) {
+                case "v":
+                    this.paste();
+                    break;
+                case "c":
+                    this.copy();
+                    break;
+            }
+        });
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "Shift") {
+                if (this.state === EventCurveEditorState.selectScope || this.state === EventCurveEditorState.selectingScope) {
+                    this.state = EventCurveEditorState.select;
+                    this.selectState = SelectState.none;
+                    parent.$selectOption.value = parent.selectOptions.none;
+                    this.draw();
+                }
+            }
+        });
+        // #endregion
+    }
+    updateMatrix() {
+        this.timeRatio = this.innerWidth / this.timeSpan;
+        // console.log(this.matrix);
+        // console.log(identity.translate(0, -valueBasis * valueRange))
+        this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
+        this.invertedCanvasMatrix = this.canvasMatrix.invert();
+    }
+    appendTo(parent) {
+        parent.append(this.element);
+    }
+    downHandler(event) {
+        var _a;
+        if (!this.target) {
+            this.createTarget(editor.judgeLinesEditor.selectedLine);
+            return;
+        }
+        const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+        const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        this.canvasPoint = canvasCoord;
+        // console.log("ECECoord:" , [x, y])
+        switch (this.state) {
+            case EventCurveEditorState.select:
+            case EventCurveEditorState.selecting:
+                const snode = this.selectionManager.click(canvasCoord);
+                this.state = !snode ? EventCurveEditorState.select : EventCurveEditorState.selecting;
+                if (snode) {
+                    this.selectedNode = snode.target;
+                    editor.switchSide(editor.eventEditor);
+                }
+                // console.log(EventCurveEditorState[this.state])
+                this.wasEditing = false;
+                break;
+            case EventCurveEditorState.edit:
+                const time = this.pointedTime;
+                const prev = this.target.getNodeAt(TimeCalculator.toBeats(time));
+                if (TimeCalculator.eq(prev.time, time)) {
+                    break;
+                }
+                const endNode = new EventEndNode(time, prev.value);
+                const node = new EventStartNode(time, prev.value);
+                node.easing = (_a = this.parentEditorSet.easing.targetEasing) !== null && _a !== void 0 ? _a : this.easing;
+                EventNode.connect(endNode, node);
+                // this.editor.chart.getComboInfoEntity(startTime).add(note)
+                editor.operationList.do(new EventNodePairInsertOperation(node, prev));
+                this.selectedNode = node;
+                this.state = EventCurveEditorState.selecting;
+                this.parentEditorSet.$editSwitch.checked = false;
+                this.wasEditing = true;
+                break;
+            case EventCurveEditorState.selectScope:
+                this.startingCanvasPoint = canvasCoord;
+                this.state = EventCurveEditorState.selectingScope;
+                break;
+        }
+    }
+    upHandler(event) {
+        const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+        const canvasCoord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        switch (this.state) {
+            case EventCurveEditorState.selecting:
+                if (!this.wasEditing) {
+                    this.state = EventCurveEditorState.select;
+                }
+                else {
+                    this.state = EventCurveEditorState.edit;
+                    this.parentEditorSet.$editSwitch.checked = true;
+                }
+                break;
+            case EventCurveEditorState.selectingScope:
+                const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
+                const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
+                const array = this.selectionManager.selectScope(sy, sx, ey, ex);
+                // console.log("Arr", array);
+                // console.log(sx, sy, ex, ey)
+                const nodes = array.map(x => x.target).filter(x => x instanceof EventStartNode);
+                // console.log(nodes);
+                switch (this.selectState) {
+                    case SelectState.extend:
+                        this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.union(new Set(nodes));
+                        break;
+                    case SelectState.replace:
+                        this.parentEditorSet.nodesSelection = new Set(nodes);
+                        break;
+                    case SelectState.exclude:
+                        this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.difference(new Set(nodes));
+                        break;
+                }
+                this.parentEditorSet.nodesSelection = new Set([...this.parentEditorSet.nodesSelection].filter((note) => !!note.parentSeq));
+                // console.log("bp")
+                if (this.parentEditorSet.nodesSelection.size !== 0) {
+                    editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection;
+                    editor.switchSide(editor.multiNodeEditor);
+                }
+                this.state = EventCurveEditorState.selectScope;
+                break;
+            default:
+                this.state = EventCurveEditorState.select;
+        }
+    }
+    initContext() {
+        this.context.translate(this.canvas.width / 2, this.canvas.height / 2);
+        this.context.strokeStyle = "#EEE";
+        this.context.fillStyle = "#333";
+        this.context.lineWidth = 2;
+    }
+    drawCoordination(beats) {
+        const { height: canvasHeight, width: canvasWidth } = this.canvas;
+        const { innerHeight, innerWidth } = this;
+        const { timeGridInterval: timeGridSpan, timeRatio, context } = this;
+        context.fillStyle = "#333";
+        context.fillRect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight);
+        const timeDivisor = editor.timeDivisor;
+        context.strokeStyle = rgb(...this.timeGridColor);
+        context.lineWidth = 3;
+        const stopBeats = Math.ceil((beats + this.timeSpan / 2) / timeGridSpan) * timeGridSpan;
+        const startBeats = Math.ceil((beats - this.timeSpan / 2) / timeGridSpan - 1) * timeGridSpan;
+        for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
+            const positionX = (time - beats) * timeRatio;
+            drawLine(context, positionX, innerHeight / 2, positionX, -innerHeight / 2);
+            context.fillStyle = "#FFF";
+            context.fillText(time + "", positionX, innerHeight / 2);
+            context.save();
+            context.lineWidth = 1;
+            for (let i = 1; i < timeDivisor; i++) {
+                const minorPosX = (time + i / timeDivisor - beats) * timeRatio;
+                drawLine(context, minorPosX, innerHeight / 2, minorPosX, -innerHeight / 2);
+            }
+            context.restore();
+        }
+        context.restore();
+        context.lineWidth = 3;
+        drawLine(context, 0, innerHeight / 2, 0, -innerHeight / 2);
+        context.strokeStyle = "#EEE";
+    }
+    draw(beats) {
+        var _a;
+        beats = beats || this.lastBeats || 0;
+        this.updateMatrix();
+        const { context, selectionManager } = this;
+        selectionManager.refresh();
+        this.drawCoordination(beats);
+        if (!this.target) {
+            context.fillText("Click to add a textEvent Sequence (IRREVERSIBLE!)", 0, 0);
+            return;
+        }
+        context.save();
+        context.fillStyle = "#EEE";
+        context.font = "16px phigros";
+        context.fillText("State: " + EventCurveEditorState[this.state], 10, -30);
+        context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10);
+        context.fillText("Sequence: " + this.target.id, 10, -50);
+        context.fillText(`fps: ${shortenFloat(editor.frameRate, 2)}`, 10, -70);
+        context.fillText(`Time: ${shortenFloat(editor.player.time, 4)}s`, 10, 40);
+        const pointedTime = this.pointedTime;
+        if (pointedTime) {
+            context.fillText(`pointedTime: ${pointedTime[0]}:${pointedTime[1]}/${pointedTime[2]}`, 10, 10);
+        }
+        if (this.canvasPoint) {
+            this.context.fillText(`Cursor: ${this.canvasPoint.x}, ${this.canvasPoint.y}`, 10, -90);
+        }
+        context.restore();
+        const startBeats = beats - this.timeSpan / 2;
+        const endBeats = beats + this.timeSpan / 2;
+        const line = (_a = editor.judgeLinesEditor) === null || _a === void 0 ? void 0 : _a.selectedLine;
+        let len = 0;
+        if (line && !line.group.isDefault()) {
+            const group = line.group;
+            const parent = this.parentEditorSet;
+            context.save();
+            context.font = "16px Phigros";
+            len = group.judgeLines.length;
+            for (let i = 0; i < len; i++) {
+                const judgeLine = group.judgeLines[i];
+                if (judgeLine === line) {
+                    continue;
+                }
+                const sequence = judgeLine.extendedLayer.text;
+                if (!sequence) {
+                    continue;
+                }
+                context.strokeStyle = context.fillStyle = `hsl(${i / len * 360}, 80%, 75%)`;
+                context.globalAlpha = 1;
+                context.fillText(`${judgeLine.id}`, i * 14, 60);
+                context.globalAlpha = 0.5;
+                this.drawSequence(sequence, beats, startBeats, endBeats, i + 1, len + 1);
+            }
+            context.restore();
+        }
+        selectionManager.setBasePriority(1);
+        this.drawSequence(this.target, beats, startBeats, endBeats, 0, len + 1);
+        console.log("seq");
+        selectionManager.setBasePriority(0);
+        if (this.state === EventCurveEditorState.selectingScope) {
+            const { startingCanvasPoint, canvasPoint } = this;
+            context.save();
+            context.lineWidth = 3;
+            context.strokeStyle = SCOPING_COLOR;
+            context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
+            context.restore();
+        }
+        this.lastBeats = beats;
+    }
+    drawSequence(sequence, beats, startBeats, endBeats, index, total) {
+        const { selectionManager, context } = this;
+        const { width } = this.canvas;
+        const { innerHeight, innerWidth, timeRatio } = this;
+        const Y = ((index + 0.5) / total - 0.5) * innerHeight;
+        let previousEndNode = sequence.getNodeAt(startBeats < 0 ? 0 : startBeats).previous || sequence.head; // 有点奇怪的操作
+        let previousTime = previousEndNode.type === 0 /* NodeType.HEAD */ ? 0 : TimeCalculator.toBeats(previousEndNode.time);
+        while (previousTime < endBeats) {
+            const startNode = previousEndNode.next;
+            const endNode = startNode.next;
+            if (endNode.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            const startTime = TimeCalculator.toBeats(startNode.time);
+            const endTime = TimeCalculator.toBeats(endNode.time);
+            const startValue = startNode.value;
+            const endValue = endNode.value;
+            const startX = (startTime - beats) * timeRatio;
+            const endX = (endTime - beats) * timeRatio;
+            const topY = Y - NODE_HEIGHT / 2;
+            const topEndY = Y - NODE_HEIGHT / 2;
+            selectionManager.add({
+                target: startNode,
+                left: startX,
+                top: topY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
+            }).annotate(context, startX, topY);
+            selectionManager.add({
+                target: endNode,
+                left: endX - NODE_WIDTH,
+                top: topEndY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
+            }).annotate(context, endX - NODE_WIDTH, topEndY + NODE_HEIGHT + 20);
+            const selected = this.parentEditorSet.nodesSelection.has(startNode);
+            if (selected) {
+                context.save();
+                context.strokeStyle = 'cyan';
+            }
+            startNode.drawCurve(context, startX, Y, endX, Y, identity);
+            if (selected) {
+                context.restore();
+            }
+            context.drawImage(NODE_START, startX, topY, NODE_WIDTH, NODE_HEIGHT);
+            context.drawImage(NODE_END, endX - NODE_WIDTH, topEndY, NODE_WIDTH, NODE_HEIGHT);
+            previousEndNode = endNode;
+            previousTime = endTime;
+        }
+        if (previousEndNode.next.next.type === 1 /* NodeType.TAIL */) {
+            const lastStart = previousEndNode.next;
+            const startBeats = TimeCalculator.toBeats(lastStart.time);
+            const startValue = lastStart.value;
+            const startX = (startBeats - beats) * timeRatio;
+            const topY = Y - NODE_HEIGHT / 2;
+            const selected = this.parentEditorSet.nodesSelection.has(lastStart);
+            if (selected) {
+                context.save();
+                context.strokeStyle = 'cyan';
+            }
+            drawLine(context, startX, Y, width / 2, Y);
+            if (selected) {
+                context.restore();
+            }
+            context.drawImage(NODE_START, startX, Y - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT);
+            selectionManager.add({
+                target: lastStart,
+                left: startX,
+                top: topY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
+            }).annotate(context, startX, topY);
+        }
+    }
+    changeTarget(line, index) {
+        const seq = line.extendedLayer.text;
+        this.target = seq;
+    }
+    createTarget(line) {
+        const seq = editor.chart.createEventNodeSequence(EventType.text, `#${line.id}.ex.text`);
+        this.target = seq;
+        editor.operationList.do(new JudgeLineExtendENSChangeOperation(line, "text", seq));
+        notify(`Created #${line.id}.ex.text, you can undo it.`);
+    }
+    paste() {
+        EventCurveEditor.prototype.paste.call(this);
+    }
+    copy() {
+        EventCurveEditor.prototype.copy.call(this);
+    }
+}
+class ColorEventSequenceEditor {
+    get selectedNode() {
+        if (!this._selectedNode) {
+            return undefined;
+        }
+        return this._selectedNode.deref();
+    }
+    set selectedNode(val) {
+        this._selectedNode = new WeakRef(val);
+        editor.eventEditor.target = val;
+    }
+    /** @deprecated use active instead */
+    get displayed() { return this.active; }
+    set displayed(val) { this.active = val; }
+    get active() {
+        return this._active;
+    }
+    set active(val) {
+        if (val === this._active) {
+            return;
+        }
+        this._active = val;
+        if (val) {
+            this.element.style.display = "";
+        }
+        else {
+            this.element.style.display = "none";
+        }
+    }
+    constructor(height, width, parent) {
+        this.lastSelectState = SelectState.extend;
+        this.parentEditorSet = parent;
+        this._active = true;
+        this.$element = $("div");
+        this.element = this.$element.element;
+        this.active = false;
+        this.state = EventCurveEditorState.select;
+        this.selectionManager = new SelectionManager();
+        this.canvas = document.createElement("canvas");
+        this.element.append(this.canvas);
+        this.canvas.width = width;
+        this.canvas.height = height;
+        this.padding = 14;
+        this.innerHeight = this.canvas.height - this.padding * 2;
+        this.innerWidth = this.canvas.width - this.padding * 2;
+        this.context = this.canvas.getContext("2d");
+        this.context.font = "16px Phigros";
+        this.timeSpan = 4;
+        this.timeRatio = this.innerWidth / this.timeSpan;
+        this.timeGridInterval = 1;
+        this.timeGridColor = [120, 255, 170];
+        this.initContext();
+        this.easing = easingMap.linear.in;
+        // 下面有一堆监听器
+        // #region
+        parent.$editSwitch.whenClickChange((checked) => {
+            this.state = checked ? EventCurveEditorState.edit : EventCurveEditorState.select;
+        });
+        parent.$timeSpanInput.whenValueChange((val) => {
+            this.timeSpan = parent.$timeSpanInput.getNum();
+            this.draw();
+        });
+        on(["mousemove", "touchmove"], this.canvas, (event) => {
+            const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+            const coord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+            const offsetBeats = coord.x / this.timeGridInterval / this.timeRatio;
+            const accurateBeats = offsetBeats + this.lastBeats;
+            let pointedBeats = Math.floor(accurateBeats);
+            let beatFraction = Math.round((accurateBeats - pointedBeats) * editor.timeDivisor);
+            if (beatFraction === editor.timeDivisor) {
+                pointedBeats += 1;
+                beatFraction = 0;
+            }
+            this.pointedTime = [pointedBeats, beatFraction, editor.timeDivisor];
+            switch (this.state) {
+                case EventCurveEditorState.selecting:
+                    // console.log("det")
+                    editor.operationList.do(new EventNodeTimeChangeOperation(this.selectedNode, this.pointedTime));
+            }
+            this.draw();
+        });
+        on(["mousedown", "touchstart"], this.canvas, (event) => {
+            this.downHandler(event);
+            this.draw();
+        });
+        on(["mouseup", "touchend"], this.canvas, (event) => {
+            this.upHandler(event);
+            this.draw();
+        });
+        parent.$selectOption.whenValueChange((v) => {
+            this.selectState = SelectState[v];
+            if (this.selectState === SelectState.none) {
+                this.state = EventCurveEditorState.select;
+            }
+            else {
+                this.state = EventCurveEditorState.selectScope;
+                this.lastSelectState = this.selectState;
+            }
+        });
+        this.mouseIn = false;
+        this.canvas.addEventListener("mouseenter", () => {
+            this.mouseIn = true;
+        });
+        this.canvas.addEventListener("mouseleave", () => {
+            this.mouseIn = false;
+        });
+        parent.$encapsuleBtn.onClick(() => {
+            if (!this.active) {
+                return;
+            }
+            notify("Encapsulation is not supported for color.");
+        });
+        window.addEventListener("keydown", (e) => {
+            if (!this.mouseIn) {
+                return;
+            }
+            if (document.activeElement !== document.body) {
+                return;
+            }
+            e.preventDefault();
+            if (e.key === "Shift") {
+                if (this.state === EventCurveEditorState.selectScope || this.state === EventCurveEditorState.selectingScope) {
+                    return;
+                }
+                parent.$selectOption.value = parent.selectOptions[SelectState[this.lastSelectState]];
+                this.state = EventCurveEditorState.selectScope;
+                this.selectState = this.lastSelectState;
+                this.draw();
+                return;
+            }
+            switch (e.key.toLowerCase()) {
+                case "v":
+                    this.paste();
+                    break;
+                case "c":
+                    this.copy();
+                    break;
+            }
+        });
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "Shift") {
+                if (this.state === EventCurveEditorState.selectScope || this.state === EventCurveEditorState.selectingScope) {
+                    this.state = EventCurveEditorState.select;
+                    this.selectState = SelectState.none;
+                    parent.$selectOption.value = parent.selectOptions.none;
+                    this.draw();
+                }
+            }
+        });
+        // #endregion
+    }
+    updateMatrix() {
+        this.timeRatio = this.innerWidth / this.timeSpan;
+        // console.log(this.matrix);
+        // console.log(identity.translate(0, -valueBasis * valueRange))
+        this.canvasMatrix = Matrix.fromDOMMatrix(this.context.getTransform());
+        this.invertedCanvasMatrix = this.canvasMatrix.invert();
+    }
+    appendTo(parent) {
+        parent.append(this.element);
+    }
+    downHandler(event) {
+        var _a;
+        if (!this.target) {
+            this.createTarget(editor.judgeLinesEditor.selectedLine);
+            return;
+        }
+        const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+        const canvasCoord = this.canvasPoint = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        this.canvasPoint = canvasCoord;
+        // console.log("ECECoord:" , [x, y])
+        switch (this.state) {
+            case EventCurveEditorState.select:
+            case EventCurveEditorState.selecting:
+                const snode = this.selectionManager.click(canvasCoord);
+                this.state = !snode ? EventCurveEditorState.select : EventCurveEditorState.selecting;
+                if (snode) {
+                    this.selectedNode = snode.target;
+                    editor.switchSide(editor.eventEditor);
+                }
+                // console.log(EventCurveEditorState[this.state])
+                this.wasEditing = false;
+                break;
+            case EventCurveEditorState.edit:
+                const time = this.pointedTime;
+                const prev = this.target.getNodeAt(TimeCalculator.toBeats(time));
+                if (TimeCalculator.eq(prev.time, time)) {
+                    break;
+                }
+                const endNode = new EventEndNode(time, prev.value);
+                const node = new EventStartNode(time, prev.value);
+                node.easing = (_a = this.parentEditorSet.easing.targetEasing) !== null && _a !== void 0 ? _a : this.easing;
+                EventNode.connect(endNode, node);
+                // this.editor.chart.getComboInfoEntity(startTime).add(note)
+                editor.operationList.do(new EventNodePairInsertOperation(node, prev));
+                this.selectedNode = node;
+                this.state = EventCurveEditorState.selecting;
+                this.parentEditorSet.$editSwitch.checked = false;
+                this.wasEditing = true;
+                break;
+            case EventCurveEditorState.selectScope:
+                this.startingCanvasPoint = canvasCoord;
+                this.state = EventCurveEditorState.selectingScope;
+                break;
+        }
+    }
+    upHandler(event) {
+        const [offsetX, offsetY] = getOffsetCoordFromEvent(event, this.canvas);
+        const canvasCoord = new Coordinate(offsetX, offsetY).mul(this.invertedCanvasMatrix);
+        switch (this.state) {
+            case EventCurveEditorState.selecting:
+                if (!this.wasEditing) {
+                    this.state = EventCurveEditorState.select;
+                }
+                else {
+                    this.state = EventCurveEditorState.edit;
+                    this.parentEditorSet.$editSwitch.checked = true;
+                }
+                break;
+            case EventCurveEditorState.selectingScope:
+                const [sx, ex] = [this.startingCanvasPoint.x, canvasCoord.x].sort((a, b) => a - b);
+                const [sy, ey] = [this.startingCanvasPoint.y, canvasCoord.y].sort((a, b) => a - b);
+                const array = this.selectionManager.selectScope(sy, sx, ey, ex);
+                // console.log("Arr", array);
+                // console.log(sx, sy, ex, ey)
+                const nodes = array.map(x => x.target).filter(x => x instanceof EventStartNode);
+                // console.log(nodes);
+                switch (this.selectState) {
+                    case SelectState.extend:
+                        this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.union(new Set(nodes));
+                        break;
+                    case SelectState.replace:
+                        this.parentEditorSet.nodesSelection = new Set(nodes);
+                        break;
+                    case SelectState.exclude:
+                        this.parentEditorSet.nodesSelection = this.parentEditorSet.nodesSelection.difference(new Set(nodes));
+                        break;
+                }
+                this.parentEditorSet.nodesSelection = new Set([...this.parentEditorSet.nodesSelection].filter((note) => !!note.parentSeq));
+                // console.log("bp")
+                if (this.parentEditorSet.nodesSelection.size !== 0) {
+                    editor.multiNodeEditor.target = this.parentEditorSet.nodesSelection;
+                    editor.switchSide(editor.multiNodeEditor);
+                }
+                this.state = EventCurveEditorState.selectScope;
+                break;
+            default:
+                this.state = EventCurveEditorState.select;
+        }
+    }
+    initContext() {
+        this.context.translate(this.canvas.width / 2, this.canvas.height / 2);
+        this.context.strokeStyle = "#EEE";
+        this.context.fillStyle = "#333";
+        this.context.lineWidth = 2;
+    }
+    drawCoordination(beats) {
+        const { height: canvasHeight, width: canvasWidth } = this.canvas;
+        const { innerHeight, innerWidth } = this;
+        const { timeGridInterval: timeGridSpan, timeRatio, context } = this;
+        context.fillStyle = "#333";
+        context.fillRect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight);
+        const timeDivisor = editor.timeDivisor;
+        context.strokeStyle = rgb(...this.timeGridColor);
+        context.lineWidth = 3;
+        const stopBeats = Math.ceil((beats + this.timeSpan / 2) / timeGridSpan) * timeGridSpan;
+        const startBeats = Math.ceil((beats - this.timeSpan / 2) / timeGridSpan - 1) * timeGridSpan;
+        for (let time = startBeats; time < stopBeats; time += timeGridSpan) {
+            const positionX = (time - beats) * timeRatio;
+            drawLine(context, positionX, innerHeight / 2, positionX, -innerHeight / 2);
+            context.fillStyle = "#FFF";
+            context.fillText(time + "", positionX, innerHeight / 2);
+            context.save();
+            context.lineWidth = 1;
+            for (let i = 1; i < timeDivisor; i++) {
+                const minorPosX = (time + i / timeDivisor - beats) * timeRatio;
+                drawLine(context, minorPosX, innerHeight / 2, minorPosX, -innerHeight / 2);
+            }
+            context.restore();
+        }
+        context.restore();
+        context.lineWidth = 3;
+        drawLine(context, 0, innerHeight / 2, 0, -innerHeight / 2);
+        context.strokeStyle = "#EEE";
+    }
+    draw(beats) {
+        var _a;
+        beats = beats || this.lastBeats || 0;
+        this.updateMatrix();
+        const { context, selectionManager } = this;
+        selectionManager.refresh();
+        this.drawCoordination(beats);
+        if (!this.target) {
+            context.fillText("Click to add a colorEvent Sequence", 0, 0);
+            return;
+        }
+        context.save();
+        context.fillStyle = "#EEE";
+        context.font = "16px phigros";
+        context.fillText("State: " + EventCurveEditorState[this.state], 10, -30);
+        context.fillText("Beats: " + shortenFloat(beats, 4).toString(), 10, -10);
+        context.fillText("Sequence: " + this.target.id, 10, -50);
+        context.fillText(`fps: ${shortenFloat(editor.frameRate, 2)}`, 10, -70);
+        context.fillText(`Time: ${shortenFloat(editor.player.time, 4)}s`, 10, 40);
+        const pointedTime = this.pointedTime;
+        if (pointedTime) {
+            context.fillText(`pointedTime: ${pointedTime[0]}:${pointedTime[1]}/${pointedTime[2]}`, 10, 10);
+        }
+        if (this.canvasPoint) {
+            this.context.fillText(`Cursor: ${this.canvasPoint.x}, ${this.canvasPoint.y}`, 10, -90);
+        }
+        context.restore();
+        const startBeats = beats - this.timeSpan / 2;
+        const endBeats = beats + this.timeSpan / 2;
+        const line = (_a = editor.judgeLinesEditor) === null || _a === void 0 ? void 0 : _a.selectedLine;
+        let len = 0;
+        if (line && !line.group.isDefault()) {
+            const group = line.group;
+            const parent = this.parentEditorSet;
+            context.save();
+            context.font = "16px Phigros";
+            len = group.judgeLines.length;
+            for (let i = 0; i < len; i++) {
+                const judgeLine = group.judgeLines[i];
+                if (judgeLine === line) {
+                    continue;
+                }
+                const sequence = judgeLine.extendedLayer.color;
+                if (!sequence) {
+                    continue;
+                }
+                context.fillStyle = `hsl(${i / len * 360}, 80%, 75%)`;
+                context.globalAlpha = 1;
+                context.fillText(`${judgeLine.id}`, i * 14, 60);
+                context.globalAlpha = 0.5;
+                this.drawSequence(sequence, beats, startBeats, endBeats, i + 1, len + 1);
+            }
+            context.restore();
+        }
+        selectionManager.setBasePriority(1);
+        this.drawSequence(this.target, beats, startBeats, endBeats, 0, len + 1);
+        console.log("seq");
+        selectionManager.setBasePriority(0);
+        if (this.state === EventCurveEditorState.selectingScope) {
+            const { startingCanvasPoint, canvasPoint } = this;
+            context.save();
+            context.lineWidth = 3;
+            context.strokeStyle = SCOPING_COLOR;
+            context.strokeRect(startingCanvasPoint.x, startingCanvasPoint.y, canvasPoint.x - startingCanvasPoint.x, canvasPoint.y - startingCanvasPoint.y);
+            context.restore();
+        }
+        this.lastBeats = beats;
+    }
+    drawSequence(sequence, beats, startBeats, endBeats, index, total) {
+        const { selectionManager, context } = this;
+        const { width } = this.canvas;
+        const { innerHeight, innerWidth, timeRatio } = this;
+        const Y = ((index + 0.5) / total - 0.5) * innerHeight;
+        let previousEndNode = sequence.getNodeAt(startBeats < 0 ? 0 : startBeats).previous || sequence.head; // 有点奇怪的操作
+        let previousTime = previousEndNode.type === 0 /* NodeType.HEAD */ ? 0 : TimeCalculator.toBeats(previousEndNode.time);
+        while (previousTime < endBeats) {
+            const startNode = previousEndNode.next;
+            const endNode = startNode.next;
+            if (endNode.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            const startTime = TimeCalculator.toBeats(startNode.time);
+            const endTime = TimeCalculator.toBeats(endNode.time);
+            const startValue = startNode.value;
+            const endValue = endNode.value;
+            const startX = (startTime - beats) * timeRatio;
+            const endX = (endTime - beats) * timeRatio;
+            const topY = Y - NODE_HEIGHT / 2;
+            const topEndY = Y - NODE_HEIGHT / 2;
+            selectionManager.add({
+                target: startNode,
+                left: startX,
+                top: topY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
+            }).annotate(context, startX, topY);
+            selectionManager.add({
+                target: endNode,
+                left: endX - NODE_WIDTH,
+                top: topEndY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
+            }).annotate(context, endX - NODE_WIDTH, topEndY + NODE_HEIGHT + 20);
+            const selected = this.parentEditorSet.nodesSelection.has(startNode);
+            if (selected) {
+                context.save();
+                context.strokeStyle = 'cyan';
+            }
+            else {
+                const gradient = context.createLinearGradient(startX, 0, endX, 0);
+                gradient.addColorStop(0, rgb(...startValue));
+                gradient.addColorStop(1, rgb(...endValue));
+                const easing = startNode.easing;
+                if (easing !== linearEasing) {
+                    for (let i = 1; i < COLOR_INTERPOLATION_MAX_STOPS; i++) {
+                        const pos = COLOR_INTERPOLATION_STEP * i;
+                        const val = startValue.map((channel, i) => channel + easing.getValue(pos) * (endValue[i] - channel));
+                        gradient.addColorStop(pos, rgb(...val));
+                    }
+                }
+                context.strokeStyle = gradient;
+            }
+            startNode.drawCurve(context, startX, Y, endX, Y, identity);
+            if (selected) {
+                context.restore();
+            }
+            context.drawImage(NODE_START, startX, topY, NODE_WIDTH, NODE_HEIGHT);
+            context.drawImage(NODE_END, endX - NODE_WIDTH, topEndY, NODE_WIDTH, NODE_HEIGHT);
+            previousEndNode = endNode;
+            previousTime = endTime;
+        }
+        if (previousEndNode.next.next.type === 1 /* NodeType.TAIL */) {
+            const lastStart = previousEndNode.next;
+            const startBeats = TimeCalculator.toBeats(lastStart.time);
+            const startValue = lastStart.value;
+            const startX = (startBeats - beats) * timeRatio;
+            const topY = Y - NODE_HEIGHT / 2;
+            const selected = this.parentEditorSet.nodesSelection.has(lastStart);
+            if (selected) {
+                context.save();
+                context.strokeStyle = 'cyan';
+            }
+            else {
+                context.strokeStyle = rgb(...startValue);
+            }
+            drawLine(context, startX, Y, width / 2, Y);
+            if (selected) {
+                context.restore();
+            }
+            context.drawImage(NODE_START, startX, Y - NODE_HEIGHT / 2, NODE_WIDTH, NODE_HEIGHT);
+            selectionManager.add({
+                target: lastStart,
+                left: startX,
+                top: topY,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+                priority: 1
+            }).annotate(context, startX, topY);
+        }
+    }
+    changeTarget(line, index) {
+        const seq = line.extendedLayer.color;
+        this.target = seq;
+    }
+    createTarget(line) {
+        const seq = editor.chart.createEventNodeSequence(EventType.color, `#${line.id}.ext.color`);
+        this.target = seq;
+        editor.operationList.do(new JudgeLineExtendENSChangeOperation(line, "color", seq));
+        notify(`Created #${line.id}.ex.color, you can undo it.`);
+    }
+    paste() {
+        EventCurveEditor.prototype.paste.call(this);
+    }
+    copy() {
+        EventCurveEditor.prototype.copy.call(this);
     }
 }
 const DRAWS_NN = true;
@@ -8003,7 +9653,7 @@ class JudgeLinesEditor extends Z {
         if (this.editor.judgeLineInfoEditor) {
             this.editor.judgeLineInfoEditor.target = line;
         }
-        this.editor.eventCurveEditors.changeTarget(line);
+        this.editor.eventCurveEditors.changeTargetLine(line);
         const editr = this.editors.get(line);
         editr.addClass("judge-line-editor-selected");
         this.editor.player.greenLine = line.id;
@@ -8269,6 +9919,7 @@ class Editor extends EventTarget {
         this.$preview = $(document.getElementById("preview"));
         this.$noteInfo = $(document.getElementById("noteInfo"));
         this.$eventSequence = $(document.getElementById("eventSequence"));
+        this.$playButton = new ZSwitch("Play", "Pause");
         this.lineInfoEle = document.getElementById("lineInfo");
         this.$saveButton = new ZButton("Save");
         this.$compileButton = new ZButton("Compile");
@@ -8302,19 +9953,17 @@ class Editor extends EventTarget {
         else {
             this.notesEditor.init(notesEditorWidth, this.$preview.clientHeight);
         }
-        this.progressBar = new ZProgressBar(this.player.audio);
-        this.progressBar.addEventListener("pause", () => this.pause());
-        this.progressBar.addEventListener("change", () => {
+        this.$progressBar = new ZProgressBar(this.player.audio);
+        this.$progressBar.addEventListener("pause", () => this.pause());
+        this.$progressBar.addEventListener("change", () => {
             this.update();
             this.player.render();
         });
-        this.progressBar.appendTo(this.$topbar);
         this.eventCurveEditors = new EventCurveEditors();
         this.eventCurveEditors.appendTo(this.$eventSequence);
         this.eventCurveEditors.init();
-        this.playButton = document.getElementById("playButton");
-        this.playButton.addEventListener("click", (event) => {
-            if (!this.playing) {
+        this.$playButton.whenClickChange((checked) => {
+            if (checked) {
                 this.play();
             }
             else {
@@ -8331,7 +9980,7 @@ class Editor extends EventTarget {
             const audio = this.player.audio;
             // console.log(event.deltaY)
             changeAudioTime(audio, event.deltaY / 500);
-            this.progressBar.update();
+            this.$progressBar.update();
             this.update();
             this.player.render();
             // event.preventDefault()
@@ -8406,7 +10055,7 @@ class Editor extends EventTarget {
             this.player.showsInfo = checked;
         });
         this.$tipsLabel = generateTipsLabel();
-        this.$topbar.append(this.$timeDivisor, this.$playbackRate, this.$offsetInput, this.$saveButton, this.$saveDialog, this.$compileButton, this.$switchButton, this.$judgeLinesEditorLayoutSelector, this.$showsLineID, this.$showsUI, this.$tipsLabel);
+        this.$topbar.append(this.$playButton, this.$progressBar, this.$timeDivisor, this.$playbackRate, this.$offsetInput, this.$saveButton, this.$saveDialog, this.$compileButton, this.$switchButton, this.$judgeLinesEditorLayoutSelector, this.$showsLineID, this.$showsUI, this.$tipsLabel);
         this.addEventListener("chartloaded", (e) => {
             document.title = this.chart.name + " - " + document.title;
             this.eventCurveEditors.bpm.target = this.chart.timeCalculator.bpmSequence;
@@ -8678,7 +10327,7 @@ class Editor extends EventTarget {
         if (this.playing) {
             return;
         }
-        this.playButton.innerHTML = "暂停";
+        this.$playButton.checked = true;
         this.lastMs = performance.now();
         this.framesSinceLastUpdate = 0;
         this.player.play();
@@ -8687,7 +10336,7 @@ class Editor extends EventTarget {
     pause() {
         this.player.pause();
         this.update();
-        this.playButton.innerHTML = "继续";
+        this.$playButton.checked = false;
     }
 }
 /**
@@ -8707,9 +10356,10 @@ class RPEChartCompiler {
         const BPMList = chart.timeCalculator.dump();
         const META = {
             RPEVersion: 1,
-            background: '',
-            charter: '',
-            composer: '',
+            background: 'illustration.png',
+            charter: chart.charter,
+            composer: chart.composer,
+            illustration: chart.illustrator,
             id: Math.random().toString().slice(2, 10),
             level: chart.level,
             name: chart.name,
@@ -8771,19 +10421,58 @@ class RPEChartCompiler {
                 alphaEvents: layer.alpha ? this.dumpEventNodeSequence(layer.alpha) : null,
                 speedEvents: layer.speed ? this.dumpEventNodeSequence(layer.speed) : null
             })),
+            extended: {
+                scaleXEvents: judgeLine.extendedLayer.scaleX ? this.dumpEventNodeSequence(judgeLine.extendedLayer.scaleX) : null,
+                scaleYEvents: judgeLine.extendedLayer.scaleY ? this.dumpEventNodeSequence(judgeLine.extendedLayer.scaleY) : null,
+                textEvents: judgeLine.extendedLayer.text ? this.dumpEventNodeSequence(judgeLine.extendedLayer.text) : null,
+                colorEvents: judgeLine.extendedLayer.color ? this.dumpEventNodeSequence(judgeLine.extendedLayer.color) : null
+            },
             father: (_b = (_a = judgeLine.father) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : -1,
             isCover: judgeLine.cover ? 1 : 0,
             numOfNotes: notes.length,
             anchor: judgeLine.anchor,
             rotateWithFather: judgeLine.rotatesWithFather,
-            isGif: 0
+            isGif: 0,
+            zOrder: judgeLine.zOrder
+        };
+    }
+    compileEvent(snode, getValue) {
+        var _a;
+        const endNode = snode.next;
+        const isSegmented = snode.easingIsSegmented;
+        const easing = isSegmented ? snode.easing.easing : snode.easing;
+        return {
+            bezier: easing instanceof BezierEasing ? 1 : 0,
+            bezierPoints: easing instanceof BezierEasing ?
+                [easing.cp1.x, easing.cp1.y, easing.cp2.x, easing.cp2.y] : // 修正了这里 cp2.y 的引用
+                [0, 0, 0, 0],
+            easingLeft: isSegmented ? snode.easing.left : 0.0,
+            easingRight: isSegmented ? snode.easing.right : 1.0,
+            easingType: easing instanceof NormalEasing ?
+                (_a = easing.rpeId) !== null && _a !== void 0 ? _a : 1 :
+                null,
+            end: getValue(easing === fixedEasing ? snode : endNode),
+            endTime: endNode.time,
+            linkgroup: 0, // 假设默认值为 0
+            start: getValue(snode),
+            startTime: snode.time
         };
     }
     dumpEventNodeSequence(sequence) {
         const nodes = [];
         const interpolationStep = this.interpolationStep;
-        sequence = this.substitute(sequence);
+        if (!(sequence.type === EventType.color || sequence.type === EventType.text)) {
+            // @ts-ignore 烦死了烦死了烦死了
+            sequence = this.substitute(sequence);
+        }
         let node = sequence.head.next;
+        // 唯一真史
+        const getValue = (sequence.type === EventType.text
+            ? (node) => {
+                const interpretedAs = node instanceof EventStartNode ? node.interpretedAs : node.previous.interpretedAs;
+                return interpretedAs === InterpreteAs.str ? node.value : "%P%" + node.value;
+            }
+            : (node) => node.value);
         while (true) {
             const end = node.next;
             if (end.type === 1 /* NodeType.TAIL */)
@@ -8791,7 +10480,7 @@ class RPEChartCompiler {
             if (node.easing instanceof ParametricEquationEasing) {
                 let cur = node.time;
                 const endTime = end.time;
-                let value = node.value;
+                let value = getValue(node);
                 for (; TC.lt(cur, endTime);) {
                     const nextTime = TC.validateIp(TC.add(cur, interpolationStep));
                     const nextValue = node.getValueAt(TC.toBeats(nextTime));
@@ -8825,7 +10514,7 @@ class RPEChartCompiler {
                 });
             }
             else {
-                nodes.push(node.dump());
+                nodes.push(this.compileEvent(node, getValue));
             }
             node = end.next;
         }
@@ -8847,6 +10536,7 @@ class RPEChartCompiler {
             // 每次从lists中第一个list pop一个data加入到结果，然后冒泡调整这个list的位置
             while (lists[0].length > 0) {
                 const list = lists[0];
+                // 只需要pop就可以了，pop复杂度O(1)，这是倒序的原因
                 const node = list.pop();
                 ret.push(node);
                 let i = 0;
@@ -8865,7 +10555,7 @@ class RPEChartCompiler {
     /**
      * 倒序转换为数组
      * @param nnList
-     * @returns
+     * @returns 一个按照时间降序排列的数组
      */
     nnListToArray(nnList) {
         const notes = [];
@@ -8900,34 +10590,87 @@ class RPEChartCompiler {
                 break;
             }
             const endNode = currentNode.next;
-            if (currentNode.easing instanceof TemplateEasing) {
-                const quoted = this.substitute(currentNode.easing.eventNodeSequence);
+            if (currentNode.innerEasing instanceof TemplateEasing) {
+                const srcSeq = this.substitute(currentNode.innerEasing.eventNodeSequence);
+                const easing = currentNode.easing;
+                const isSegmented = easingIsSegmented(easing);
+                const startValue = currentNode.value;
+                const endValue = currentNode.next.value;
+                const delta = endValue - startValue;
                 const startTime = currentNode.time;
-                const endTime = endNode.time;
-                const start = currentNode.value;
-                const end = endNode.value;
-                const delta = end - start;
-                const originalStart = quoted.head.next.value;
-                const originalDelta = quoted.tail.previous.value - quoted.head.next.value;
-                const originalTimeSpan = TimeCalculator.sub(quoted.tail.previous.time, quoted.head.next.time);
-                const timeSpan = TimeCalculator.sub(endTime, startTime);
-                const ratio = TimeCalculator.div(timeSpan, originalTimeSpan);
-                const convert = (value) => start + (value - originalStart) * delta / originalDelta;
-                // 我恨TS没有运算符重载
-                const convertTime = (time) => TC.validateIp(TC.add(startTime, TC.mul(TC.sub(time, quoted.head.next.time), ratio)));
-                let node = quoted.head.next;
-                while (true) {
-                    const end = node.next;
-                    if (end.type === 1 /* NodeType.TAIL */) {
-                        break;
-                    }
-                    const newNode = new EventStartNode(convertTime(node.time), convert(node.value));
-                    const newEndNode = new EventEndNode(convertTime(end.time), convert(end.value));
-                    EventNode.connect(currentPos, newNode);
-                    EventNode.connect(newNode, newEndNode);
-                    currentPos = newEndNode;
-                    node = end.next;
+                const timeDelta = TC.sub(currentNode.next.time, startTime);
+                let srcStart, srcEnd, leftDividedNode, rightDividedNode, srcStartTime, srcTimeDelta, toStopAt;
+                if (isSegmented) {
+                    const totalDuration = TC.sub(srcSeq.tail.previous.time, srcSeq.head.next.time);
+                    srcStart = srcSeq.getValueAt(easing.left * srcSeq.effectiveBeats);
+                    srcEnd = srcSeq.getValueAt(easing.right * srcSeq.effectiveBeats, true);
+                    leftDividedNode = srcSeq.getNodeAt(easing.left * srcSeq.effectiveBeats);
+                    rightDividedNode = srcSeq.getNodeAt(easing.right * srcSeq.effectiveBeats, true);
+                    toStopAt = rightDividedNode.next.next;
+                    srcStartTime = TC.mul(totalDuration, numberToRatio(easing.left));
+                    const srcEndTime = TC.mul(totalDuration, numberToRatio(easing.right));
+                    TC.validateIp(srcStartTime);
+                    TC.validateIp(srcEndTime);
+                    srcTimeDelta = TC.sub(srcEndTime, srcStartTime);
+                    TC.validateIp(srcTimeDelta);
                 }
+                else {
+                    srcStart = srcSeq.head.next.value;
+                    srcEnd = srcSeq.tail.previous.value;
+                    leftDividedNode = srcSeq.head.next;
+                    rightDividedNode = srcSeq.tail.previous;
+                    toStopAt = rightDividedNode;
+                    srcStartTime = srcSeq.head.next.time;
+                    srcTimeDelta = TC.sub(srcSeq.tail.previous.time, srcStartTime);
+                }
+                const srcDelta = srcEnd - srcStart;
+                const ratio = TC.div(timeDelta, srcTimeDelta);
+                const convert = (value) => startValue + (value - srcStart) * delta / srcDelta;
+                // 我恨TS没有运算符重载
+                const convertTime = (time) => TC.validateIp(TC.add(startTime, TC.mul(TC.sub(time, srcStartTime), ratio)));
+                const first = currentNode.clone();
+                EventNode.connect(currentPos, first);
+                // 处理第一个节点的截段
+                if (isSegmented) {
+                    const left = easing.left * srcSeq.effectiveBeats;
+                    if (TC.toBeats(leftDividedNode.time) - left > 1e-6) {
+                        // 断言：这里left不会大于有效拍数
+                        const newLeft = left / (TC.toBeats(leftDividedNode.next.time) - TC.toBeats(leftDividedNode.time));
+                        first.easing = new SegmentedEasing(leftDividedNode.easing, newLeft, 1.0);
+                    }
+                    else {
+                        first.easing = leftDividedNode.easing;
+                    }
+                }
+                else {
+                    first.easing = srcSeq.head.next.easing;
+                }
+                let prev = first;
+                // 这里在到toStopAt之前一直都是非尾的
+                for (let n = leftDividedNode.next; n.next !== toStopAt; n = n.next.next) {
+                    const endNode = n;
+                    const startNode = n.next;
+                    const newEnd = new EventEndNode(convertTime(endNode.time), convert(endNode.value));
+                    const newStart = new EventStartNode(convertTime(startNode.time), convert(startNode.value));
+                    newStart.easing = startNode.easing;
+                    EventNode.connect(prev, newEnd);
+                    EventNode.connect(newEnd, newStart);
+                    prev = newStart;
+                }
+                // 处理最后一个节点的截段
+                if (isSegmented) {
+                    const right = easing.right * srcSeq.effectiveBeats;
+                    if (TC.toBeats(rightDividedNode.next.time) - right > 1e-6) {
+                        // 断言：这里right不会大于有效拍数
+                        const newRight = right / (TC.toBeats(rightDividedNode.next.time) - TC.toBeats(rightDividedNode.time));
+                        // 这时候prev是最后一个subst的node
+                        prev.easing = new SegmentedEasing(rightDividedNode.easing, 0.0, newRight);
+                    }
+                }
+                const endNode = currentNode.next.clone();
+                EventNode.connect(prev, endNode);
+                currentPos = endNode;
+                endNode.value = isSegmented ? endNode.value : convert(srcSeq.tail.previous.previous.value);
             }
             else {
                 const newStartNode = currentNode.clone();
@@ -9123,7 +10866,7 @@ const getImageFromType = (noteType) => {
 const ENABLE_PLAYER = true;
 const DRAWS_NOTES = true;
 const DEFAULT_ASPECT_RATIO = 3 / 2;
-const LINE_WIDTH = 10;
+const LINE_WIDTH = 6.75;
 const LINE_COLOR = "#CCCC77";
 const HIT_EFFECT_SIZE = 200;
 const HALF_HIT = HIT_EFFECT_SIZE / 2;
@@ -9280,6 +11023,7 @@ class Player {
         }
         // console.time("render")
         const context = this.context;
+        context.save();
         const hitContext = this.hitContext;
         hitContext.clearRect(0, 0, 1350, 900);
         context.drawImage(this.background, -675, -450, 1350, 900);
@@ -9295,19 +11039,29 @@ class Player {
         context.strokeStyle = "#FFFFFF";
         drawLine(context, -1350, 0, 1350, 0);
         drawLine(context, 0, 900, 0, -900);
+        context.restore();
         // console.log("rendering")
+        const lineQueue = [...this.chart.judgeLines].sort((a, b) => { var _a, _b; return ((_a = a.zOrder) !== null && _a !== void 0 ? _a : 0) - ((_b = b.zOrder) !== null && _b !== void 0 ? _b : 0); });
         for (let line of this.chart.orphanLines) {
-            this.renderLine(identity.translate(675, 450).scale(1, -1), line);
-            context.restore();
-            context.save();
+            this.precalculate(identity.translate(675, 450).scale(1, -1), line);
         }
+        for (let line of lineQueue) {
+            if (line.optimized) {
+                continue;
+            }
+            context.save();
+            this.renderLine(line);
+            context.restore();
+        }
+        context.save();
         hitContext.strokeStyle = "#66ccff";
         hitContext.lineWidth = 5;
         drawLine(hitContext, 0, 900, 1350, 0);
-        context.drawImage(this.hitCanvas, -675, -450, 1350, 900);
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.drawImage(this.hitCanvas, 0, 0, 1350, 900);
         context.restore();
-        context.save();
         if (this.showsInfo) {
+            context.save();
             const setTransform = (lineOrNull) => {
                 if (!lineOrNull) {
                     context.setTransform(identity.translate(675, 450));
@@ -9345,19 +11099,20 @@ class Player {
                 context.fillText(COMBO_TEXT, 0, -400 + h);
             }
             context.restore();
-            context.save();
         }
         // this.soundQueue = [];
         // console.timeEnd("render")
     }
-    renderLine(matrix, judgeLine) {
-        const context = this.context;
-        const timeCalculator = this.chart.timeCalculator;
+    precalculate(matrix, judgeLine) {
         const beats = this.beats;
         // const timeCalculator = this.chart.timeCalculator
         const alpha = judgeLine.getStackedValue("alpha", beats);
         if (judgeLine.nnLists.size === 0 && judgeLine.hnLists.size === 0 && alpha <= 0 && judgeLine.children.size === 0 && !judgeLine.hasAttachUI) {
+            judgeLine.optimized = true;
             return;
+        }
+        else {
+            judgeLine.optimized = false;
         }
         const x = judgeLine.getStackedValue("moveX", beats);
         const y = judgeLine.getStackedValue("moveY", beats);
@@ -9367,28 +11122,55 @@ class Player {
         judgeLine.rotate = theta;
         judgeLine.alpha = alpha;
         const { x: transformedX, y: transformedY } = new Coordinate(x, y).mul(matrix);
+        judgeLine.transformedX = transformedX;
+        judgeLine.transformedY = transformedY;
         const myMatrix = judgeLine.rotatesWithFather ? matrix.translate(x, y).rotate(-theta) : identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
-        context.setTransform(myMatrix);
         // Cache a matrix
         judgeLine.renderMatrix = myMatrix;
         if (judgeLine.children.size !== 0) {
             for (let line of judgeLine.children) {
-                context.save();
-                this.renderLine(myMatrix, line);
-                context.restore();
+                this.precalculate(myMatrix, line);
             }
         }
+    }
+    renderLine(judgeLine) {
+        var _a, _b, _c, _d;
+        const context = this.context;
+        const timeCalculator = this.chart.timeCalculator;
+        const beats = this.beats;
+        const alpha = judgeLine.alpha;
+        const theta = judgeLine.rotate;
+        const myMatrix = judgeLine.renderMatrix;
+        const transformedX = judgeLine.transformedX;
+        const transformedY = judgeLine.transformedY;
+        context.setTransform(myMatrix);
         // Draw Line
-        const scaleX = 1.0;
-        const scaleY = 1.0;
+        const scaleX = judgeLine.extendedLayer.scaleX.getValueAt(beats);
+        const scaleY = judgeLine.extendedLayer.scaleY.getValueAt(beats);
         const anchor = judgeLine.anchor;
+        console.log(scaleX, scaleY, anchor);
         let textureName = judgeLine.texture;
         if (textureName !== "line.png" && !this.textureMapping.get(textureName)) {
             textureName = "line.png";
         }
         context.scale(1, -1);
-        if (textureName === "line.png") {
-            const lineColor = [200, 200, 120];
+        const hasText = !!judgeLine.extendedLayer.text;
+        if (hasText) {
+            const textContent = judgeLine.extendedLayer.text.getValueAt(beats);
+            context.save();
+            context.fillStyle = rgba(...(_b = (_a = judgeLine.extendedLayer.color) === null || _a === void 0 ? void 0 : _a.getValueAt(beats)) !== null && _b !== void 0 ? _b : [255, 255, 255], alpha);
+            context.font = "54px phigros";
+            context.scale(scaleX, scaleY);
+            context.textAlign = "center";
+            context.textBaseline = "middle";
+            const metrics = context.measureText(textContent);
+            const height = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+            const width = metrics.width;
+            context.fillText(textContent, width * (anchor[0] - 0.5), height * (anchor[1] - 0.5));
+            context.restore();
+        }
+        else if (textureName === "line.png") {
+            const lineColor = (_d = (_c = judgeLine.extendedLayer.color) === null || _c === void 0 ? void 0 : _c.getValueAt(beats)) !== null && _d !== void 0 ? _d : [200, 200, 120];
             context.fillStyle = rgba(...(this.greenLine === judgeLine.id ? [100, 255, 100] : lineColor), alpha / 255);
             const scaledWidth = BASE_LINE_LENGTH * scaleX;
             const scaledHeight = LINE_WIDTH * scaleY;
@@ -10141,6 +11923,9 @@ KPA.hacks = new Map();
 KPA.cores = new Map();
 /** 所有扩展 */
 KPA.extensions = new Map();
+window.addEventListener("error", (e) => {
+    notify(e.error.message);
+});
 var editor, settings, serverApi;
 if (globalThis.document) {
     KPA.hack("server", [], [], () => {
@@ -10186,264 +11971,5 @@ if (globalThis.document) {
             }
         }, 60000);
     });
-}
-else {
-    const tc = new TimeCalculator;
-    tc.bpmList = [
-        {
-            "bpm": 200.0,
-            "startTime": [0, 0, 1]
-        },
-        {
-            "bpm": 180.0,
-            "startTime": [276, 0, 1]
-        },
-        {
-            "bpm": 170.0,
-            "startTime": [280, 0, 1]
-        },
-        {
-            "bpm": 150.0,
-            "startTime": [284, 0, 1]
-        },
-        {
-            "bpm": 130.0,
-            "startTime": [286, 0, 1]
-        },
-        {
-            "bpm": 100.0,
-            "startTime": [288, 0, 1]
-        },
-        {
-            "bpm": 90.0,
-            "startTime": [292, 0, 1]
-        },
-        {
-            "bpm": 95.0,
-            "startTime": [293, 0, 1]
-        },
-        {
-            "bpm": 100.0,
-            "startTime": [294, 0, 1]
-        },
-        {
-            "bpm": 105.0,
-            "startTime": [295, 0, 1]
-        },
-        {
-            "bpm": 110.00000000000001,
-            "startTime": [296, 0, 1]
-        },
-        {
-            "bpm": 115.0,
-            "startTime": [297, 0, 1]
-        },
-        {
-            "bpm": 120.0,
-            "startTime": [298, 0, 1]
-        },
-        {
-            "bpm": 130.0,
-            "startTime": [299, 0, 1]
-        },
-        {
-            "bpm": 140.0,
-            "startTime": [300, 0, 1]
-        },
-        {
-            "bpm": 150.0,
-            "startTime": [332, 0, 1]
-        },
-        {
-            "bpm": 155.0,
-            "startTime": [340, 0, 1]
-        },
-        {
-            "bpm": 160.0,
-            "startTime": [348, 0, 1]
-        },
-        {
-            "bpm": 165.0,
-            "startTime": [356, 0, 1]
-        },
-        {
-            "bpm": 170.0,
-            "startTime": [364, 0, 1]
-        },
-        {
-            "bpm": 175.0,
-            "startTime": [366, 0, 1]
-        },
-        {
-            "bpm": 180.0,
-            "startTime": [368, 0, 1]
-        },
-        {
-            "bpm": 185.0,
-            "startTime": [370, 0, 1]
-        },
-        {
-            "bpm": 190.0,
-            "startTime": [372, 0, 1]
-        },
-        {
-            "bpm": 195.0,
-            "startTime": [374, 0, 1]
-        },
-        {
-            "bpm": 200.0,
-            "startTime": [376, 0, 1]
-        },
-        {
-            "bpm": 205.0,
-            "startTime": [378, 0, 1]
-        },
-        {
-            "bpm": 210.0,
-            "startTime": [380, 0, 1]
-        },
-        {
-            "bpm": 215.0,
-            "startTime": [382, 0, 1]
-        },
-        {
-            "bpm": 220.00000000000003,
-            "startTime": [384, 0, 1]
-        },
-        {
-            "bpm": 225.0,
-            "startTime": [386, 0, 1]
-        },
-        {
-            "bpm": 230.0,
-            "startTime": [388, 0, 1]
-        },
-        {
-            "bpm": 235.00000000000003,
-            "startTime": [390, 0, 1]
-        },
-        {
-            "bpm": 240.0,
-            "startTime": [392, 0, 1]
-        },
-        {
-            "bpm": 245.0,
-            "startTime": [394, 0, 1]
-        },
-        {
-            "bpm": 250.0,
-            "startTime": [396, 0, 1]
-        },
-        {
-            "bpm": 255.0,
-            "startTime": [398, 0, 1]
-        },
-        {
-            "bpm": 260.0,
-            "startTime": [400, 0, 1]
-        },
-        {
-            "bpm": 265.0,
-            "startTime": [402, 0, 1]
-        },
-        {
-            "bpm": 270.0,
-            "startTime": [404, 0, 1]
-        },
-        {
-            "bpm": 275.0,
-            "startTime": [406, 0, 1]
-        },
-        {
-            "bpm": 280.0,
-            "startTime": [408, 0, 1]
-        },
-        {
-            "bpm": 285.0,
-            "startTime": [410, 0, 1]
-        },
-        {
-            "bpm": 290.0,
-            "startTime": [412, 0, 1]
-        },
-        {
-            "bpm": 300.0,
-            "startTime": [414, 0, 1]
-        },
-        {
-            "bpm": 310.0,
-            "startTime": [416, 0, 1]
-        },
-        {
-            "bpm": 320.0,
-            "startTime": [418, 0, 1]
-        },
-        {
-            "bpm": 330.0,
-            "startTime": [420, 0, 1]
-        },
-        {
-            "bpm": 340.0,
-            "startTime": [422, 0, 1]
-        },
-        {
-            "bpm": 350.0,
-            "startTime": [424, 0, 1]
-        },
-        {
-            "bpm": 100.0,
-            "startTime": [461, 0, 1]
-        },
-        {
-            "bpm": 110.00000000000001,
-            "startTime": [462, 0, 1]
-        },
-        {
-            "bpm": 120.0,
-            "startTime": [463, 0, 1]
-        },
-        {
-            "bpm": 130.0,
-            "startTime": [464, 0, 1]
-        },
-        {
-            "bpm": 140.0,
-            "startTime": [465, 0, 1]
-        },
-        {
-            "bpm": 150.0,
-            "startTime": [465, 1, 2]
-        },
-        {
-            "bpm": 160.0,
-            "startTime": [466, 0, 1]
-        },
-        {
-            "bpm": 170.0,
-            "startTime": [466, 1, 2]
-        },
-        {
-            "bpm": 180.0,
-            "startTime": [467, 0, 1]
-        },
-        {
-            "bpm": 190.0,
-            "startTime": [467, 1, 2]
-        },
-        {
-            "bpm": 200.0,
-            "startTime": [468, 0, 1]
-        },
-        {
-            "bpm": 150.0,
-            "startTime": [570, 0, 1]
-        }
-    ];
-    tc.duration = 1145;
-    console.log(tc);
-    tc.update();
-    console.log(tc);
-    console.log(tc.toSeconds(2), tc.toSeconds(301));
-    console.log(tc.secondsToBeats(100));
 }
 //# sourceMappingURL=index.js.map

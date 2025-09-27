@@ -8,7 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 const VERSION = 180;
-const VERSION_STRING = "1.8.0-alpha2";
+const VERSION_STRING = "1.8.0";
 /**
  * @author Zes Minkey Young
  * This file is an alternative for those users whose browsers don't support ESnext.Collection
@@ -293,7 +293,9 @@ class Easing {
         const rightValue = this.getValue(easingRight);
         const timeDelta = easingRight - easingLeft;
         const delta = rightValue - leftValue;
-        console.log("lr", easingLeft, leftValue, easingRight, rightValue);
+        if (delta === 0) {
+            throw new Error('Easing delta cannot be zero.');
+        }
         return (t) => (this.getValue(easingLeft + timeDelta * t) - leftValue) / delta;
     }
     drawCurve(context, startX, startY, endX, endY) {
@@ -402,8 +404,11 @@ class TemplateEasing extends Easing {
     }
     getValue(t) {
         const seq = this.eventNodeSequence;
-        let delta = this.valueDelta;
-        const frac = seq.getValueAt(t * seq.effectiveBeats) - this.headValue;
+        const delta = this.valueDelta;
+        if (delta === 0) {
+            throw new Error('Easing delta cannot be zero.');
+        }
+        const frac = seq.getValueAt(t * seq.effectiveBeats, true) - this.headValue;
         return delta === 0 ? frac : frac / delta;
     }
     get valueDelta() {
@@ -841,12 +846,6 @@ const node2string = (node) => {
     }
     return `NN(${node.notes.length}) at ${node.startTime}`;
 };
-const rgb2hex = (rgb) => {
-    return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
-};
-const hex2rgb = (hex) => {
-    return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF];
-};
 const notePropTypes = {
     above: "boolean",
     alpha: "number",
@@ -1221,6 +1220,55 @@ class NNList {
             noteNodes: nodes
         };
     }
+    getNodesFromOneAndRangeRight(node, rangeRight) {
+        const arr = [];
+        for (; !TC.gt(node.startTime, rangeRight);) {
+            arr.push(node);
+            const next = node.next;
+            if (next.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            node = next;
+        }
+        return arr;
+    }
+    getNodesAfterOne(node) {
+        const arr = [];
+        while (true) {
+            const next = node.next;
+            if (next.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            node = next;
+            arr.push(node);
+        }
+        return arr;
+    }
+    clearEmptyNodes(updatesJump = true) {
+        let node = this.head.next;
+        let lastNonEmptyNode = null;
+        while (node.type !== 1 /* NodeType.TAIL */) {
+            if (node.notes.length === 0) {
+                const next = node.next;
+                NoteNode.disconnect(node.previous, node);
+                node = next;
+            }
+            else {
+                if (lastNonEmptyNode !== node.previous) {
+                    NoteNode.disconnect(node.previous, node);
+                    NoteNode.connect(lastNonEmptyNode, node);
+                }
+                lastNonEmptyNode = node;
+                node = node.next;
+            }
+        }
+        if (updatesJump) {
+            this.jump.updateRange(this.head, this.tail);
+            if (this instanceof HNList) {
+                this.holdTailJump.updateRange(this.head, this.tail);
+            }
+        }
+    }
 }
 /**
  * HoldNode的链表
@@ -1385,7 +1433,10 @@ class JudgeLine {
         this.hnLists = new Map();
         this.nnLists = new Map();
         this.eventLayers = [];
+        this.extendedLayer = {};
         this.children = new Set();
+        this.optimized = false;
+        this.zOrder = 0;
         this.anchor = [0.5, 0.5];
         this.hasAttachUI = false;
         this.rotatesWithFather = false;
@@ -1397,7 +1448,7 @@ class JudgeLine {
         // this.noteSpeeds = {};
     }
     static fromRPEJSON(chart, id, data, templates, timeCalculator) {
-        var _a;
+        var _a, _b;
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
@@ -1405,6 +1456,8 @@ class JudgeLine {
         line.cover = Boolean(data.isCover);
         line.rotatesWithFather = data.rotateWithFather;
         line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
+        line.texture = data.Texture || "line.png";
+        line.zOrder = (_b = data.zOrder) !== null && _b !== void 0 ? _b : 0;
         // Process UI
         if (data.attachUI) {
             // Must use template string, otherwise TypeScript would not recognize it as `keyof Chart`
@@ -1463,6 +1516,14 @@ class JudgeLine {
                 return sequence;
             }
         };
+        const createExtendedSequence = (type, events) => {
+            if (events) {
+                const sequence = EventNodeSequence.fromRPEJSON(type, events, chart);
+                sequence.id = `#${id}.ex.${EventType[type]}`;
+                chart.sequenceMap.set(sequence.id, sequence);
+                return sequence;
+            }
+        };
         for (let index = 0; index < length; index++) {
             const layerData = eventLayers[index];
             if (!layerData) {
@@ -1477,12 +1538,32 @@ class JudgeLine {
             };
             line.eventLayers[index] = layer;
         }
+        if (data.extended) {
+            if (data.extended.scaleXEvents) {
+                line.extendedLayer.scaleX = createExtendedSequence(EventType.scaleX, data.extended.scaleXEvents);
+            }
+            else {
+                line.extendedLayer.scaleX = chart.createEventNodeSequence(EventType.scaleX, `#${id}.ex.scaleX`);
+            }
+            if (data.extended.scaleYEvents) {
+                line.extendedLayer.scaleY = createExtendedSequence(EventType.scaleY, data.extended.scaleYEvents);
+            }
+            else {
+                line.extendedLayer.scaleY = chart.createEventNodeSequence(EventType.scaleY, `#${id}.ex.scaleY`);
+            }
+            if (data.extended.textEvents) {
+                line.extendedLayer.text = createExtendedSequence(EventType.text, data.extended.textEvents);
+            }
+            if (data.extended.colorEvents) {
+                line.extendedLayer.color = createExtendedSequence(EventType.color, data.extended.colorEvents);
+            }
+        }
         // line.updateNoteSpeeds();
         // line.computeNotePositionY(timeCalculator);
         return line;
     }
     static fromKPAJSON(isOld, chart, id, data, templates, timeCalculator) {
-        var _a, _b;
+        var _a, _b, _c, _d, _e;
         let line = new JudgeLine(chart);
         line.id = id;
         line.name = data.Name;
@@ -1490,6 +1571,7 @@ class JudgeLine {
         line.anchor = (_a = data.anchor) !== null && _a !== void 0 ? _a : [0.5, 0.5];
         line.texture = data.Texture || "line.png";
         line.cover = (_b = data.cover) !== null && _b !== void 0 ? _b : true;
+        line.zOrder = (_c = data.zOrder) !== null && _c !== void 0 ? _c : 0;
         chart.judgeLineGroups[data.group].add(line);
         const nnnList = chart.nnnList;
         for (let isHold of [false, true]) {
@@ -1518,6 +1600,20 @@ class JudgeLine {
                 eventLayer[key] = chart.sequenceMap.get(eventLayerData[key]);
             }
             line.eventLayers.push(eventLayer);
+        }
+        line.extendedLayer.scaleX = ((_d = data.extended) === null || _d === void 0 ? void 0 : _d.scaleXEvents)
+            ? chart.sequenceMap.get(data.extended.scaleXEvents)
+            : chart.createEventNodeSequence(EventType.scaleX, `#${line.id}.ex.scaleX`);
+        line.extendedLayer.scaleY = ((_e = data.extended) === null || _e === void 0 ? void 0 : _e.scaleYEvents)
+            ? chart.sequenceMap.get(data.extended.scaleYEvents)
+            : chart.createEventNodeSequence(EventType.scaleY, `#${line.id}.ex.scaleY`);
+        if (data.extended) {
+            if (data.extended.textEvents) {
+                line.extendedLayer.text = chart.sequenceMap.get(data.extended.textEvents);
+            }
+            if (data.extended.colorEvents) {
+                line.extendedLayer.color = chart.sequenceMap.get(data.extended.colorEvents);
+            }
         }
         chart.judgeLines.push(line);
         return line;
@@ -1566,6 +1662,14 @@ class JudgeLine {
         for (const list of createdLists) {
             NoteNode.connect(list.currentPoint, list.tail);
             list.initJump();
+        }
+    }
+    getLayer(index) {
+        if (index === "ex") {
+            return this.extendedLayer;
+        }
+        else {
+            return this.eventLayers[index];
         }
     }
     updateSpeedIntegralFrom(beats, timeCalculator) {
@@ -1775,6 +1879,7 @@ class JudgeLine {
      * @returns
      */
     dumpKPA(eventNodeSequences, judgeLineGroups) {
+        var _a, _b, _c, _d;
         const children = [];
         for (let line of this.children) {
             children.push(line.dumpKPA(eventNodeSequences, judgeLineGroups));
@@ -1802,6 +1907,20 @@ class JudgeLine {
         for (let [id, list] of this.nnLists) {
             nnListsData[id] = list.dumpKPA();
         }
+        const extended = {
+            scaleXEvents: (_a = this.extendedLayer.scaleX) === null || _a === void 0 ? void 0 : _a.id,
+            scaleYEvents: (_b = this.extendedLayer.scaleY) === null || _b === void 0 ? void 0 : _b.id,
+            textEvents: (_c = this.extendedLayer.text) === null || _c === void 0 ? void 0 : _c.id,
+            colorEvents: (_d = this.extendedLayer.color) === null || _d === void 0 ? void 0 : _d.id,
+        };
+        eventNodeSequences.add(this.extendedLayer.scaleX);
+        eventNodeSequences.add(this.extendedLayer.scaleY);
+        if (this.extendedLayer.color) {
+            eventNodeSequences.add(this.extendedLayer.color);
+        }
+        if (this.extendedLayer.text) {
+            eventNodeSequences.add(this.extendedLayer.text);
+        }
         return {
             group: judgeLineGroups.indexOf(this.group),
             id: this.id,
@@ -1813,7 +1932,9 @@ class JudgeLine {
             eventLayers: eventLayers,
             hnLists: hnListsData,
             nnLists: nnListsData,
-            cover: this.cover
+            cover: this.cover,
+            extended: extended,
+            zOrder: this.zOrder === 0 ? undefined : this.zOrder
         };
     }
     updateEffectiveBeats(EB) {
@@ -1851,6 +1972,10 @@ var EventType;
     EventType[EventType["speed"] = 4] = "speed";
     EventType[EventType["easing"] = 5] = "easing";
     EventType[EventType["bpm"] = 6] = "bpm";
+    EventType[EventType["scaleX"] = 7] = "scaleX";
+    EventType[EventType["scaleY"] = 8] = "scaleY";
+    EventType[EventType["text"] = 9] = "text";
+    EventType[EventType["color"] = 10] = "color";
 })(EventType || (EventType = {}));
 var NoteType;
 (function (NoteType) {
@@ -2037,14 +2162,14 @@ class Chart {
     }
     dumpKPA() {
         var _a, _b, _c, _d, _e, _f, _g;
-        const eventNodeSequences = new Set();
+        const eventNodeSequenceCollector = new Set();
         const orphanLines = [];
         for (let line of this.orphanLines) {
-            orphanLines.push(line.dumpKPA(eventNodeSequences, this.judgeLineGroups));
+            orphanLines.push(line.dumpKPA(eventNodeSequenceCollector, this.judgeLineGroups));
         }
-        const envEasings = this.templateEasingLib.dump(eventNodeSequences);
+        const envEasings = this.templateEasingLib.dump(eventNodeSequenceCollector);
         const eventNodeSequenceData = [];
-        for (let sequence of eventNodeSequences) {
+        for (let sequence of eventNodeSequenceCollector) {
             eventNodeSequenceData.push(sequence.dump());
         }
         return {
@@ -2055,7 +2180,10 @@ class Chart {
             eventNodeSequences: eventNodeSequenceData,
             info: {
                 level: this.level,
-                name: this.name
+                name: this.name,
+                charter: this.charter,
+                illustrator: this.illustrator,
+                composer: this.composer
             },
             ui: {
                 combo: (_a = this.comboAttach) === null || _a === void 0 ? void 0 : _a.id,
@@ -2226,7 +2354,8 @@ class EventNodeLike {
 class EventNode extends EventNodeLike {
     constructor(time, value) {
         super(2 /* NodeType.MIDDLE */);
-        this.time = TimeCalculator.validateIp(time);
+        this.time = TimeCalculator.validateIp([...time]);
+        // @ts-ignore 不清楚什么时候会是undefined，但是留着准没错
         this.value = value !== null && value !== void 0 ? value : 0;
         this.easing = linearEasing;
     }
@@ -2291,6 +2420,36 @@ class EventNode extends EventNodeLike {
         }
         return [start, end];
     }
+    static fromTextEvent(data, templates) {
+        let startValue = data.start;
+        let endValue = data.end;
+        let interpreteAs = InterpreteAs.str;
+        if (/%P%/.test(startValue) && /%P%/.test(endValue)) {
+            startValue = startValue.replace(/%P%/g, "");
+            endValue = endValue.replace(/%P%/g, "");
+            if (startValue.includes(".") || startValue.includes("e") || startValue.includes("E")
+                || endValue.includes(".") || endValue.includes("e") || endValue.includes("E")) {
+                startValue = parseFloat(startValue) + "";
+                endValue = parseFloat(endValue) + "";
+                interpreteAs = InterpreteAs.float;
+            }
+            else {
+                startValue = parseInt(startValue) + "";
+                endValue = parseInt(endValue) + "";
+                interpreteAs = InterpreteAs.int;
+            }
+        }
+        let start = new EventStartNode(data.startTime, startValue);
+        let end = new EventEndNode(data.endTime, endValue);
+        start.interpretedAs = interpreteAs;
+        start.easing = EventNode.getEasing(data, data.easingLeft, data.easingRight, templates);
+        EventNode.connect(start, end);
+        if (!start.easing) {
+            start.easing = linearEasing;
+            console.error("No easing found for event:", data, start, "will use linear by default");
+        }
+        return [start, end];
+    }
     static connect(node1, node2) {
         node1.next = node2;
         node2.previous = node1;
@@ -2305,6 +2464,12 @@ class EventNode extends EventNodeLike {
         node.next = null;
     }
     */
+    /**
+     *
+     * @param endNode
+     * @param startNode
+     * @returns 应该在何范围内更新跳数组
+     */
     static removeNodePair(endNode, startNode) {
         const prev = endNode.previous;
         const next = startNode.next;
@@ -2438,9 +2603,77 @@ class EventNode extends EventNodeLike {
         }
     }
 }
+const getValueFns = [
+    (current, timeDelta, value, nextVal, easing) => {
+        // @ts-ignore TSC脑壳有问题
+        const valueDelta = nextVal - value;
+        // 其他类型，包括普通缓动和非钩定模板缓动
+        return value + easing.getValue(current / timeDelta) * valueDelta;
+    },
+    (current, timeDelta, value, nextVal, easing, interpretedAs) => {
+        if (interpretedAs === InterpreteAs.float) {
+            const start = parseFloat(value);
+            const delta = parseFloat(nextVal) - start;
+            return start + this.easing.getValue(current / timeDelta) * delta + "";
+        }
+        else if (interpretedAs === InterpreteAs.int) {
+            const start = parseInt(value);
+            const delta = parseInt(nextVal) - start;
+            return start + Math.round(this.easing.getValue(current / timeDelta) * delta) + "";
+        }
+        else if (value.startsWith(nextVal)) {
+            const startLen = nextVal.length;
+            const deltaLen = value.length - startLen;
+            const len = startLen + Math.floor(deltaLen * easing.getValue(current / timeDelta));
+            return value.substring(0, len);
+        }
+        else if (nextVal.startsWith(value)) {
+            const startLen = value.length;
+            const deltaLen = nextVal.length - startLen;
+            const len = startLen + Math.floor(deltaLen * easing.getValue(current / timeDelta));
+            return nextVal.substring(0, len);
+        }
+        else {
+            return value;
+        }
+    },
+    (current, timeDelta, value, nextValue, easing) => {
+        return value.map((v, i) => {
+            const nextVal = nextValue[i];
+            const value = v;
+            if (nextVal === value) {
+                return value;
+            }
+            else {
+                const delta = nextVal - value;
+                return value + easing.getValue(current / timeDelta) * delta;
+            }
+        });
+    }
+];
+var InterpreteAs;
+(function (InterpreteAs) {
+    InterpreteAs[InterpreteAs["str"] = 0] = "str";
+    InterpreteAs[InterpreteAs["int"] = 1] = "int";
+    InterpreteAs[InterpreteAs["float"] = 2] = "float";
+})(InterpreteAs || (InterpreteAs = {}));
 class EventStartNode extends EventNode {
     constructor(time, value) {
         super(time, value);
+        this.interpretedAs = InterpreteAs.str;
+        // 最史的一集，what can i say
+        if (typeof value === "number") {
+            // @ts-ignore
+            this.getValueFn = getValueFns[0];
+        }
+        else if (typeof value === "string") {
+            // @ts-ignore
+            this.getValueFn = getValueFns[1];
+        }
+        else {
+            // @ts-ignore
+            this.getValueFn = getValueFns[2];
+        }
     }
     get easingIsSegmented() {
         return this.easing instanceof SegmentedEasing;
@@ -2473,7 +2706,8 @@ class EventStartNode extends EventNode {
             linkgroup: 0, // 假设默认值为 0
             start: this.value,
             startTime: this.time,
-            isParametric: easing instanceof ParametricEquationEasing
+            isParametric: easing instanceof ParametricEquationEasing,
+            interpreteAs: typeof this.value === "string" ? this.interpretedAs : undefined
         };
     }
     /**
@@ -2492,7 +2726,6 @@ class EventStartNode extends EventNode {
                 [0, 0, 0, 0],
             easingLeft: isSegmented ? this.easing.left : 0.0,
             easingRight: isSegmented ? this.easing.right : 1.0,
-            // @ts-expect-error
             easingType: easing instanceof TemplateEasing ?
                 (easing.name) :
                 easing instanceof NormalEasing ?
@@ -2520,15 +2753,12 @@ class EventStartNode extends EventNode {
         if (this.easing instanceof ParametricEquationEasing) {
             return this.easing.getValue(current / timeDelta);
         }
-        let valueDelta = this.next.value - this.value;
-        if (valueDelta === 0) {
-            return this.value;
+        const nextVal = this.next.value;
+        const value = this.value;
+        if (nextVal === value) {
+            return value;
         }
-        if (!this.easing) {
-            debugger;
-        }
-        // 其他类型，包括普通缓动和非钩定模板缓动
-        return this.value + this.easing.getValue(current / timeDelta) * valueDelta;
+        return this.getValueFn(current, timeDelta, value, nextVal, this.easing, this.interpretedAs);
     }
     getSpeedValueAt(beats) {
         if (this.next.type === 1 /* NodeType.TAIL */) {
@@ -2646,19 +2876,36 @@ class EventNodeSequence {
         // this.startNodes = [];
         // this.endNodes = [];
     }
+    static getDefaultValueFromEventType(type) {
+        return type === EventType.speed ? 10 :
+            type === EventType.scaleX || type === EventType.scaleY ? 1.0 :
+                type === EventType.text ? "" :
+                    type === EventType.color ? [0, 0, 0] :
+                        0;
+    }
     static fromRPEJSON(type, data, chart, endValue) {
         var _a, _b, _c;
-        const { templateEasingLib: templates, timeCalculator } = chart;
+        const { templateEasingLib: templates } = chart;
         const length = data.length;
         // const isSpeed = type === EventType.Speed;
         // console.log(isSpeed)
         const seq = new EventNodeSequence(type, type === EventType.easing ? TimeCalculator.toBeats(data[length - 1].endTime) : chart.effectiveBeats);
         let listLength = length;
         let lastEnd = seq.head;
+        // 如果第一个事件不从0时间开始，那么添加一对面对面节点来垫背
+        if (data[0] && TC.ne(data[0].startTime, [0, 0, 1])) {
+            const value = data[0].start;
+            const start = new EventStartNode([0, 0, 1], value);
+            const end = new EventEndNode(data[0].startTime, value);
+            EventNode.connect(lastEnd, start);
+            EventNode.connect(start, end);
+            lastEnd = end;
+        }
         let lastIntegral = 0;
         for (let index = 0; index < length; index++) {
             const event = data[index];
-            let [start, end] = EventNode.fromEvent(event, templates);
+            // @ts-ignore
+            let [start, end] = (type === EventType.text ? EventNode.fromTextEvent(event, templates) : EventNode.fromEvent(event, templates));
             if (lastEnd.type === 0 /* NodeType.HEAD */) {
                 EventNode.connect(lastEnd, start);
             }
@@ -2707,7 +2954,7 @@ class EventNodeSequence {
      */
     static newSeq(type, effectiveBeats) {
         const sequence = new EventNodeSequence(type, effectiveBeats);
-        const node = new EventStartNode([0, 0, 1], type === EventType.speed ? 10 : 0);
+        const node = new EventStartNode([0, 0, 1], EventNodeSequence.getDefaultValueFromEventType(type));
         EventNode.connect(sequence.head, node);
         EventNode.connect(node, sequence.tail);
         sequence.initJump();
@@ -2789,7 +3036,8 @@ class EventNodeSequence {
     }
     getNodeAt(beats, usePrev = false) {
         var _a;
-        let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats)) || this.head.next;
+        let node = ((_a = this.jump) === null || _a === void 0 ? void 0 : _a.getNodeAt(beats))
+            || this.head.next;
         if (node.type === 1 /* NodeType.TAIL */) {
             if (usePrev) {
                 return node.previous.previous.previous;
@@ -2841,6 +3089,30 @@ class EventNodeSequence {
             id: this.id,
             endValue: currentNode.value
         };
+    }
+    getNodesFromOneAndRangeRight(node, rangeRight) {
+        const arr = [];
+        for (; !TC.gt(node.time, rangeRight);) {
+            const next = node.next;
+            arr.push(node);
+            if (next.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            node = next.next;
+        }
+        return arr;
+    }
+    getNodesAfterOne(node) {
+        const arr = [];
+        while (true) {
+            const next = node.next;
+            if (next.type === 1 /* NodeType.TAIL */) {
+                break;
+            }
+            node = next.next;
+            arr.push(node);
+        }
+        return arr;
     }
 }
 /**
@@ -3080,6 +3352,9 @@ class TimeCalculator {
         }
         return beaT;
     }
+    static vadd(beaT1, beaT2) { return this.validateIp(this.add(beaT1, beaT2)); }
+    static vsub(beaT1, beaT2) { return this.validateIp(this.sub(beaT1, beaT2)); }
+    static vmul(beaT, ratio) { return this.validateIp(this.mul(beaT, ratio)); }
     static gcd(a, b) {
         if (a === 0 || b === 0) {
             return 0;
@@ -3577,7 +3852,7 @@ class ZDropdownOptionBox extends Z {
         this.$optionList = $("div").addClass("dropdown-option-list");
         const optionList = this.$optionList;
         span.append(optionList);
-        this.options = options;
+        this.options = [...options];
         const length = options.length;
         for (let i = 0; i < length; i++) {
             const $element = options[i].getElement(this);
@@ -3585,6 +3860,7 @@ class ZDropdownOptionBox extends Z {
         }
         optionList.onClick((event) => {
             const target = event.target;
+            const options = this.options;
             if (target instanceof HTMLDivElement) {
                 if (target !== this.value.getElement(this).release()) {
                     let option;
@@ -3891,9 +4167,27 @@ class ZEasingBox extends Z {
     }
 }
 class ZRadioBox extends Z {
+    get disabledIndexes() {
+        return this._disabledIndexes;
+    }
+    set disabledIndexes(value) {
+        this._disabledIndexes = value;
+        for (let i = 0; i < this.$inputs.length; i++) {
+            this.$inputs[i].element.disabled = value.indexOf(i) >= 0;
+        }
+        // 如果当前的栏被禁，跳到第一个没被禁的
+        if (this.disabledIndexes.indexOf(this.selectedIndex) >= 0) {
+            for (let i = 0; i < this.$inputs.length; i++) {
+                if (this.disabledIndexes.indexOf(i) < 0) {
+                    this.selectedIndex = i;
+                    this.dispatchEvent(new ZValueChangeEvent());
+                    break;
+                }
+            }
+        }
+    }
     constructor(name, options, defaultIndex = 0) {
         super("div");
-        this.callbacks = [];
         this.$inputs = [];
         this.addClass("radio-box");
         for (let i = 0; i < options.length; i++) {
@@ -3906,7 +4200,7 @@ class ZRadioBox extends Z {
                     return;
                 }
                 this.selectedIndex = i;
-                this.callbacks.forEach(f => f(i));
+                this.dispatchEvent(new ZValueChangeEvent());
             });
             if (i === defaultIndex) {
                 $input.attr("checked", "true");
@@ -3915,7 +4209,9 @@ class ZRadioBox extends Z {
         this.selectedIndex = defaultIndex;
     }
     onChange(callback) {
-        this.callbacks.push(callback);
+        this.addEventListener("valueChange", () => {
+            callback(this.selectedIndex);
+        });
         return this;
     }
     /**
@@ -4108,7 +4404,7 @@ class ZCollapseController extends Z {
 const ENABLE_PLAYER = true;
 const DRAWS_NOTES = true;
 const DEFAULT_ASPECT_RATIO = 3 / 2;
-const LINE_WIDTH = 10;
+const LINE_WIDTH = 6.75;
 const LINE_COLOR = "#CCCC77";
 const HIT_EFFECT_SIZE = 200;
 const HALF_HIT = HIT_EFFECT_SIZE / 2;
@@ -4265,6 +4561,7 @@ class Player {
         }
         // console.time("render")
         const context = this.context;
+        context.save();
         const hitContext = this.hitContext;
         hitContext.clearRect(0, 0, 1350, 900);
         context.drawImage(this.background, -675, -450, 1350, 900);
@@ -4280,19 +4577,29 @@ class Player {
         context.strokeStyle = "#FFFFFF";
         drawLine(context, -1350, 0, 1350, 0);
         drawLine(context, 0, 900, 0, -900);
+        context.restore();
         // console.log("rendering")
+        const lineQueue = [...this.chart.judgeLines].sort((a, b) => { var _a, _b; return ((_a = a.zOrder) !== null && _a !== void 0 ? _a : 0) - ((_b = b.zOrder) !== null && _b !== void 0 ? _b : 0); });
         for (let line of this.chart.orphanLines) {
-            this.renderLine(identity.translate(675, 450).scale(1, -1), line);
-            context.restore();
-            context.save();
+            this.precalculate(identity.translate(675, 450).scale(1, -1), line);
         }
+        for (let line of lineQueue) {
+            if (line.optimized) {
+                continue;
+            }
+            context.save();
+            this.renderLine(line);
+            context.restore();
+        }
+        context.save();
         hitContext.strokeStyle = "#66ccff";
         hitContext.lineWidth = 5;
         drawLine(hitContext, 0, 900, 1350, 0);
-        context.drawImage(this.hitCanvas, -675, -450, 1350, 900);
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.drawImage(this.hitCanvas, 0, 0, 1350, 900);
         context.restore();
-        context.save();
         if (this.showsInfo) {
+            context.save();
             const setTransform = (lineOrNull) => {
                 if (!lineOrNull) {
                     context.setTransform(identity.translate(675, 450));
@@ -4330,19 +4637,20 @@ class Player {
                 context.fillText(COMBO_TEXT, 0, -400 + h);
             }
             context.restore();
-            context.save();
         }
         // this.soundQueue = [];
         // console.timeEnd("render")
     }
-    renderLine(matrix, judgeLine) {
-        const context = this.context;
-        const timeCalculator = this.chart.timeCalculator;
+    precalculate(matrix, judgeLine) {
         const beats = this.beats;
         // const timeCalculator = this.chart.timeCalculator
         const alpha = judgeLine.getStackedValue("alpha", beats);
         if (judgeLine.nnLists.size === 0 && judgeLine.hnLists.size === 0 && alpha <= 0 && judgeLine.children.size === 0 && !judgeLine.hasAttachUI) {
+            judgeLine.optimized = true;
             return;
+        }
+        else {
+            judgeLine.optimized = false;
         }
         const x = judgeLine.getStackedValue("moveX", beats);
         const y = judgeLine.getStackedValue("moveY", beats);
@@ -4352,28 +4660,55 @@ class Player {
         judgeLine.rotate = theta;
         judgeLine.alpha = alpha;
         const { x: transformedX, y: transformedY } = new Coordinate(x, y).mul(matrix);
+        judgeLine.transformedX = transformedX;
+        judgeLine.transformedY = transformedY;
         const myMatrix = judgeLine.rotatesWithFather ? matrix.translate(x, y).rotate(-theta) : identity.translate(transformedX, transformedY).rotate(-theta).scale(1, -1);
-        context.setTransform(myMatrix);
         // Cache a matrix
         judgeLine.renderMatrix = myMatrix;
         if (judgeLine.children.size !== 0) {
             for (let line of judgeLine.children) {
-                context.save();
-                this.renderLine(myMatrix, line);
-                context.restore();
+                this.precalculate(myMatrix, line);
             }
         }
+    }
+    renderLine(judgeLine) {
+        var _a, _b, _c, _d;
+        const context = this.context;
+        const timeCalculator = this.chart.timeCalculator;
+        const beats = this.beats;
+        const alpha = judgeLine.alpha;
+        const theta = judgeLine.rotate;
+        const myMatrix = judgeLine.renderMatrix;
+        const transformedX = judgeLine.transformedX;
+        const transformedY = judgeLine.transformedY;
+        context.setTransform(myMatrix);
         // Draw Line
-        const scaleX = 1.0;
-        const scaleY = 1.0;
+        const scaleX = judgeLine.extendedLayer.scaleX.getValueAt(beats);
+        const scaleY = judgeLine.extendedLayer.scaleY.getValueAt(beats);
         const anchor = judgeLine.anchor;
+        console.log(scaleX, scaleY, anchor);
         let textureName = judgeLine.texture;
         if (textureName !== "line.png" && !this.textureMapping.get(textureName)) {
             textureName = "line.png";
         }
         context.scale(1, -1);
-        if (textureName === "line.png") {
-            const lineColor = [200, 200, 120];
+        const hasText = !!judgeLine.extendedLayer.text;
+        if (hasText) {
+            const textContent = judgeLine.extendedLayer.text.getValueAt(beats);
+            context.save();
+            context.fillStyle = rgba(...(_b = (_a = judgeLine.extendedLayer.color) === null || _a === void 0 ? void 0 : _a.getValueAt(beats)) !== null && _b !== void 0 ? _b : [255, 255, 255], alpha);
+            context.font = "54px phigros";
+            context.scale(scaleX, scaleY);
+            context.textAlign = "center";
+            context.textBaseline = "middle";
+            const metrics = context.measureText(textContent);
+            const height = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+            const width = metrics.width;
+            context.fillText(textContent, width * (anchor[0] - 0.5), height * (anchor[1] - 0.5));
+            context.restore();
+        }
+        else if (textureName === "line.png") {
+            const lineColor = (_d = (_c = judgeLine.extendedLayer.color) === null || _c === void 0 ? void 0 : _c.getValueAt(beats)) !== null && _d !== void 0 ? _d : [200, 200, 120];
             context.fillStyle = rgba(...(this.greenLine === judgeLine.id ? [100, 255, 100] : lineColor), alpha / 255);
             const scaledWidth = BASE_LINE_LENGTH * scaleX;
             const scaledHeight = LINE_WIDTH * scaleY;
@@ -5030,6 +5365,18 @@ const formatTime = (minutes, seconds) => {
     const hrs = Math.floor(minutes / 60);
     minutes %= 60;
     return numNounWithoutZero(hrs, "hr") + " " + numNounWithoutZero(minutes, "min") + " " + numNounWithoutZero(seconds, "sec");
+};
+const rgb2hex = (rgb) => {
+    return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
+};
+const hex2rgb = (hex) => {
+    return [hex >> 16, hex >> 8 & 0xFF, hex & 0xFF];
+};
+const hex6StrToRgb = (hex) => hex2rgb(parseInt(hex.substring(1), 16));
+const hex3StrToRgb = (hex) => [parseInt(hex.charAt(1) + hex.charAt(1), 16), parseInt(hex.charAt(2) + hex.charAt(2), 16), parseInt(hex.charAt(3) + hex.charAt(3), 16)];
+// 四位精度小数变分数
+const numberToRatio = (num) => {
+    return [Math.round(num * 10000), 10000];
 };
 const PROJECT_NAME = "kpa";
 class ChartMetadata {
