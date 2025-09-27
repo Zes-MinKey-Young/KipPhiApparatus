@@ -2,37 +2,27 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Create</title>
+<link rel="stylesheet" href="/css/formpage.css">
+<title>Import a chart - KPA</title>
 </head>
 <body>
-    <p>Tips: 谱面标识符用于索引谱面，请尽量选择易于记忆的简短的不含中文的字符串</p>
-    <p>导入的谱面可以是<a href="https://pgrfm.miraheze.org/wiki/RPEJSON">RPEJSON</a>谱面也可以是<a href="https://pgrfm.miraheze.org/wiki/KPAJSON">KPAJSON</a>谱面</p>
+    <h1>Import a Chart</h1>
+    <p>Tips: 谱面标识符用于索引谱面，请尽量选择易于记忆的简短的不含中文的字符串<br>
+        Tips: Chart Identifiers are used to index charts, please use strings that are easy to memorize.</p>
+    <p>导入的谱面可以是<a href="https://pgrfm.miraheze.org/wiki/RPEJSON">RPEJSON</a>谱面也可以是<a href="https://pgrfm.miraheze.org/wiki/KPAJSON">KPAJSON</a>谱面<br>You can import either RPEJSON or KPAJSON.</p>
+    <p>请选择插图、音乐和谱面文件，或上传一个压缩包。<br>Choose illustration, music and chart files, or upload a PEZ(ZIP) Archive.</p>
     <form action="/import" method="POST" enctype="multipart/form-data">
-        <ul>
-            <li>
-                <label for="id">Identifier</label>
-                <input type="text" name="id" id="id" placeholder="Id">
-            </li>
-            <li>
-                <label for="compression">PEZ File</label>
-                <input type="file" name="compression" id="compression">
-            </li>
-            <li>
-                <label for="illustration">Illustration</label>
-                <input type="file" name="illustration" id="illustration">
-            </li>
-            <li>
-                <label for="music">Music</label>
-                <input type="file" name="music" id="music">
-            </li>
-            <li>
-                <label for="chart">Chart</label>
-                <input type="file" name="chart" id="chart">
-            </li>
-            <li>
-                <input type="submit" value="Create"></input>
-            </li>
-        </ul>
+        <label for="id">Identifier</label>
+        <input type="text" name="id" id="id" placeholder="Id">
+        <label for="compression">PEZ File</label>
+        <input type="file" name="compression" id="compression">
+        <label for="illustration">Illustration</label>
+        <input type="file" name="illustration" id="illustration">
+        <label for="music">Music</label>
+        <input type="file" name="music" id="music">
+        <label for="chart">Chart</label>
+        <input type="file" name="chart" id="chart">
+        <input type="submit" value="Create"></input>
     </form>
     
     <script>

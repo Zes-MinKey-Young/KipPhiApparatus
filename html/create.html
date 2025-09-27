@@ -2,36 +2,24 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Create</title>
+<link rel="stylesheet" href="/css/formpage.css">
+<title>Create a chart</title>
 </head>
 <body>
-    <p>Tips: 谱面标识符用于索引谱面，请尽量选择易于记忆的简短的不含中文的字符串</p>
+    <h1>Create a Chart</h1>
+    <p>Tips: 谱面标识符用于索引谱面，请尽量选择易于记忆的简短的不含中文的字符串<br>Tips: Chart Identifiers are used to index charts, please use strings that are easy to memorize.</p>
     <form action="/create" method="POST" enctype="multipart/form-data">
-        <ul>
-            <li>
-                <label for="id">Identifier</label>
-                <input type="text" name="id" id="id" placeholder="Id">
-            </li>
-            <li>
-                <label for="title">Title</label>
-                <input type="text" name="title" id="title" placeholder="Title">
-            </li>
-            <li>
-                <label for="bpm">BPM</label>
-                <input type="text" name="bpm" id="bpm" placeholder="BPM">
-            </li>
-            <li>
-                <label for="illustration">Illustration</label>
-                <input type="file" name="illustration" id="illustration">
-            </li>
-            <li>
-                <label for="music">Music</label>
-                <input type="file" name="music" id="music">
-            </li>
-            <li>
-                <input type="submit" value="Create"></input>
-            </li>
-        </ul>
+        <label for="id">Identifier</label>
+        <input type="text" name="id" id="id" placeholder="Id">
+        <label for="title">Title</label>
+        <input type="text" name="title" id="title" placeholder="Title">
+        <label for="bpm">BPM</label>
+        <input type="text" name="bpm" id="bpm" placeholder="BPM">
+        <label for="illustration">Illustration</label>
+        <input type="file" name="illustration" id="illustration">
+        <label for="music">Music</label>
+        <input type="file" name="music" id="music">
+        <input type="submit" value="Create"></input>
     </form>
     
     <script>
