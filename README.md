@@ -53,6 +53,8 @@ src文件夹内有三个tsconfig，一个为总config，另外两个分别为dif
 
 开发此项目时，由于这两个项目之间有交叉，不使用扩展来执行自动编译。scripts文件夹下有监听脚本compilerOnSave.ts（用Bun运行即可），可用于自动编译。由于本仓库上传了`.vscode`文件夹，通常您不需要额外配置。
 
+开发相关的构建指南可在Wiki上查看。
+
 
 # Development
 This repository is written in TypeScript and developed in VSCode. Due to the complex interrelationship between files, this repository uses a single file to compile all the files, instead of using ESModule. Welcome to contribute to this project.
